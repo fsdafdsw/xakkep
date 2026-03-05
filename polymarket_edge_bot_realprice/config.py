@@ -47,3 +47,9 @@ MAX_SIGNALS_PER_EVENT = int(os.getenv("MAX_SIGNALS_PER_EVENT", "1"))
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+BOT_BUILD_ID = (
+    os.getenv("BOT_BUILD_ID")
+    or os.getenv("GITHUB_SHA", "local")
+)
+BOT_BUILD_ID = BOT_BUILD_ID[:7] if BOT_BUILD_ID else "unknown"
