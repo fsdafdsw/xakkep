@@ -70,6 +70,26 @@ def _parse_yes_token_id(market):
     return str(token_ids[yes_index])
 
 
+def _extract_event_slug(market):
+    event_slug = market.get("eventSlug")
+    if isinstance(event_slug, str) and event_slug.strip():
+        return event_slug.strip()
+
+    events = market.get("events")
+    if isinstance(events, str):
+        try:
+            events = json.loads(events)
+        except json.JSONDecodeError:
+            events = []
+    if isinstance(events, list):
+        for event in events:
+            if isinstance(event, dict):
+                slug = event.get("slug")
+                if isinstance(slug, str) and slug.strip():
+                    return slug.strip()
+    return None
+
+
 def _hours_to_close(end_date):
     if not end_date:
         return None
@@ -124,6 +144,7 @@ def _normalize_market(raw):
         "id": raw.get("id"),
         "question": raw.get("question"),
         "slug": raw.get("slug"),
+        "event_slug": _extract_event_slug(raw),
         "active": bool(raw.get("active", False)),
         "closed": bool(raw.get("closed", False)),
         "volume": _safe_float(raw.get("volume")) or 0.0,

@@ -18,8 +18,11 @@ def _entry_price(market):
 
 
 def _market_link(market):
-    slug = market.get("slug")
+    slug = market.get("event_slug") or market.get("slug")
     if slug:
+        token_id = market.get("token_yes")
+        if token_id:
+            return f"https://polymarket.com/event/{slug}?tid={token_id}"
         return f"https://polymarket.com/event/{slug}"
     return "https://polymarket.com/"
 
