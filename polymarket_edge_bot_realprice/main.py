@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import *
@@ -11,10 +12,18 @@ from strategy import evaluate_market
 from telegram import send_message
 
 
+def _clamp(value, low=0.01, high=0.99):
+    return max(low, min(high, value))
+
+
 def _entry_price(market):
     if market.get("best_ask") is not None:
         return market["best_ask"]
     return market.get("ref_price")
+
+
+def _event_key(market):
+    return market.get("event_id") or market.get("event_slug") or market.get("id")
 
 
 def _market_link(market):
@@ -28,6 +37,12 @@ def _market_link(market):
 
 
 def _passes_filters(market, rejects):
+    question = str(market.get("question") or "").lower()
+    for pattern in EXCLUDED_QUESTION_PATTERNS:
+        if pattern and pattern in question:
+            rejects["excluded_pattern"] += 1
+            return False
+
     volume_ref = market.get("volume24h", 0.0) or market.get("volume", 0.0)
     entry = _entry_price(market)
 
@@ -41,6 +56,12 @@ def _passes_filters(market, rejects):
 
     if market.get("ref_price") is None:
         rejects["no_price"] += 1
+        return False
+
+    if REQUIRE_ORDERBOOK and (
+        market.get("best_bid") is None or market.get("best_ask") is None
+    ):
+        rejects["no_orderbook"] += 1
         return False
 
     if entry is None or entry < MIN_PRICE or entry > MAX_PRICE:
@@ -60,12 +81,64 @@ def _passes_filters(market, rejects):
     return True
 
 
+def _recompute_trade_fields(item):
+    fair = item["fair"]
+    entry = item["entry"]
+    market = item["market"]
+    item["gross_edge"] = fair - entry
+    item["net_edge"] = net_edge_after_costs(
+        fair_probability=fair,
+        entry_price=entry,
+        taker_fee_bps=TAKER_FEE_BPS,
+        slippage_bps=ESTIMATED_SLIPPAGE_BPS,
+        spread=market.get("spread"),
+    )
+    if item["net_edge"] is None:
+        item["net_edge"] = -999.0
+
+    kelly = kelly_bet_fraction(fair, entry)
+    item["stake_usd"] = min(
+        MAX_BET_USD,
+        BANKROLL_USD * kelly * KELLY_FRACTION * item["metrics"].get("confidence", 0.5),
+    )
+
+
+def _neutralize_by_event(items):
+    grouped = defaultdict(list)
+    for idx, item in enumerate(items):
+        grouped[item["event_key"]].append(idx)
+
+    for indices in grouped.values():
+        if len(indices) <= 1:
+            continue
+
+        deltas = []
+        for i in indices:
+            market = items[i]["market"]
+            implied = market.get("ref_price")
+            if implied is None:
+                implied = items[i]["entry"]
+            deltas.append(items[i]["fair"] - implied)
+
+        mean_delta = sum(deltas) / len(deltas)
+        for i in indices:
+            market = items[i]["market"]
+            implied = market.get("ref_price")
+            if implied is None:
+                implied = items[i]["entry"]
+
+            centered_delta = (items[i]["fair"] - implied) - mean_delta
+            adjusted_fair = implied + (centered_delta * EVENT_NEUTRALIZATION_STRENGTH)
+            items[i]["fair"] = _clamp(adjusted_fair)
+            _recompute_trade_fields(items[i])
+
+
 def _format_signal(rank, candidate):
     return (
         f"{rank}. {candidate['question']}\n"
         f"{candidate['link']}\n"
         f"entry={candidate['entry']:.3f} fair={candidate['fair']:.3f} "
-        f"net_edge={candidate['net_edge']:.3f}\n"
+        f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
         f"confidence={candidate['confidence']:.2f} stake=${candidate['stake_usd']:.2f}"
     )
 
@@ -77,10 +150,14 @@ def run():
     rejects = {
         "low_liquidity": 0,
         "low_volume": 0,
+        "excluded_pattern": 0,
         "no_price": 0,
+        "no_orderbook": 0,
         "extreme_price": 0,
         "wide_spread": 0,
         "near_expiry": 0,
+        "low_confidence": 0,
+        "low_gross_edge": 0,
     }
     coverage = {
         "price_available": 0,
@@ -97,49 +174,52 @@ def run():
             continue
 
         metrics = evaluate_market(market)
-        fair = estimated_probability(market, metrics)
         entry = _entry_price(market)
-        net_edge = net_edge_after_costs(
-            fair_probability=fair,
-            entry_price=entry,
-            taker_fee_bps=TAKER_FEE_BPS,
-            slippage_bps=ESTIMATED_SLIPPAGE_BPS,
-            spread=market.get("spread"),
+        fair = estimated_probability(
+            market,
+            metrics,
+            adjustment_scale=MODEL_ADJUSTMENT_SCALE,
         )
-        if net_edge is None:
+        if fair is None:
             continue
 
-        kelly = kelly_bet_fraction(fair, entry)
-        stake_usd = min(
-            MAX_BET_USD,
-            BANKROLL_USD * kelly * KELLY_FRACTION * metrics.get("confidence", 0.5),
-        )
+        item = {
+            "event_key": _event_key(market),
+            "market": market,
+            "metrics": metrics,
+            "fair": fair,
+            "entry": entry,
+        }
+        _recompute_trade_fields(item)
+        accepted.append(item)
 
-        accepted.append(
-            {
-                "market": market,
-                "metrics": metrics,
-                "fair": fair,
-                "entry": entry,
-                "net_edge": net_edge,
-                "stake_usd": max(stake_usd, 0.0),
-            }
-        )
+    # Event-level neutralization reduces false positives across mutually exclusive outcomes.
+    _neutralize_by_event(accepted)
 
     value_bets = []
     watchlist = []
     skipped_by_exposure = 0
 
     for item in accepted:
-        market = item["market"]
+        confidence = item["metrics"].get("confidence", 0.5)
+        if confidence < MIN_CONFIDENCE:
+            rejects["low_confidence"] += 1
+            continue
+
+        if item["gross_edge"] < MIN_GROSS_EDGE:
+            rejects["low_gross_edge"] += 1
+            continue
+
         candidate = {
-            "question": market.get("question"),
-            "link": _market_link(market),
+            "event_key": item["event_key"],
+            "question": item["market"].get("question"),
+            "link": _market_link(item["market"]),
             "entry": item["entry"],
             "fair": item["fair"],
+            "gross_edge": item["gross_edge"],
             "net_edge": item["net_edge"],
-            "confidence": item["metrics"]["confidence"],
-            "stake_usd": item["stake_usd"],
+            "confidence": confidence,
+            "stake_usd": max(item["stake_usd"], 0.0),
         }
 
         if item["net_edge"] > EDGE_THRESHOLD:
@@ -150,22 +230,40 @@ def run():
     value_bets_sorted = sorted(value_bets, key=lambda x: x["net_edge"], reverse=True)
     exposure_cap = BANKROLL_USD * MAX_TOTAL_EXPOSURE_PCT
     exposure_used = 0.0
+    event_usage = defaultdict(int)
     value_bets_limited = []
 
     for candidate in value_bets_sorted:
         stake = candidate.get("stake_usd", 0.0)
         if stake <= 0:
             continue
+
+        if event_usage[candidate["event_key"]] >= MAX_SIGNALS_PER_EVENT:
+            continue
+
         if exposure_used + stake > exposure_cap:
             skipped_by_exposure += 1
             continue
+
         value_bets_limited.append(candidate)
+        event_usage[candidate["event_key"]] += 1
         exposure_used += stake
         if len(value_bets_limited) >= MAX_SIGNALS:
             break
 
+    watchlist_sorted = sorted(watchlist, key=lambda x: x["net_edge"], reverse=True)
+    watch_event_usage = defaultdict(int)
+    watchlist_limited = []
+    for candidate in watchlist_sorted:
+        if watch_event_usage[candidate["event_key"]] >= MAX_SIGNALS_PER_EVENT:
+            continue
+        watch_event_usage[candidate["event_key"]] += 1
+        watchlist_limited.append(candidate)
+        if len(watchlist_limited) >= MAX_WATCHLIST:
+            break
+
     value_bets = value_bets_limited
-    watchlist = sorted(watchlist, key=lambda x: x["net_edge"], reverse=True)[:MAX_WATCHLIST]
+    watchlist = watchlist_limited
 
     signals = (
         "\n\n".join(_format_signal(i + 1, v) for i, v in enumerate(value_bets))
@@ -182,7 +280,7 @@ def run():
     report = f"""Polymarket edge scan - {utc_now}
 
 Scanned: {len(markets)}
-Passed filters: {len(accepted)}
+Passed base filters: {len(accepted)}
 Price coverage: {coverage['price_available']}/{len(markets)}
 Orderbook coverage: {coverage['book_available']}/{len(markets)}
 
@@ -199,7 +297,7 @@ Reject reasons:
 Skipped by exposure cap: {skipped_by_exposure}
 
 Risk params:
-bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%}
+bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
 """
 
     send_message(report)

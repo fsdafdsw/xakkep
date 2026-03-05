@@ -70,10 +70,11 @@ def _parse_yes_token_id(market):
     return str(token_ids[yes_index])
 
 
-def _extract_event_slug(market):
+def _extract_event_meta(market):
     event_slug = market.get("eventSlug")
+    event_id = market.get("eventId")
     if isinstance(event_slug, str) and event_slug.strip():
-        return event_slug.strip()
+        return {"event_slug": event_slug.strip(), "event_id": str(event_id) if event_id else None}
 
     events = market.get("events")
     if isinstance(events, str):
@@ -85,9 +86,13 @@ def _extract_event_slug(market):
         for event in events:
             if isinstance(event, dict):
                 slug = event.get("slug")
+                ev_id = event.get("id")
                 if isinstance(slug, str) and slug.strip():
-                    return slug.strip()
-    return None
+                    return {
+                        "event_slug": slug.strip(),
+                        "event_id": str(ev_id) if ev_id is not None else None,
+                    }
+    return {"event_slug": None, "event_id": None}
 
 
 def _hours_to_close(end_date):
@@ -122,6 +127,7 @@ def _fetch_json(url):
 
 
 def _normalize_market(raw):
+    event_meta = _extract_event_meta(raw)
     best_bid = _safe_float(raw.get("bestBid"))
     best_ask = _safe_float(raw.get("bestAsk"))
     spread = None
@@ -142,9 +148,10 @@ def _normalize_market(raw):
 
     return {
         "id": raw.get("id"),
+        "event_id": event_meta["event_id"],
         "question": raw.get("question"),
         "slug": raw.get("slug"),
-        "event_slug": _extract_event_slug(raw),
+        "event_slug": event_meta["event_slug"],
         "active": bool(raw.get("active", False)),
         "closed": bool(raw.get("closed", False)),
         "volume": _safe_float(raw.get("volume")) or 0.0,

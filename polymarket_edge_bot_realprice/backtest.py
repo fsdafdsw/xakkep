@@ -11,15 +11,22 @@ from typing import Any, Optional
 from config import (
     EDGE_THRESHOLD,
     ESTIMATED_SLIPPAGE_BPS,
+    EVENT_NEUTRALIZATION_STRENGTH,
+    EXCLUDED_QUESTION_PATTERNS,
     KELLY_FRACTION,
     MAX_BET_USD,
     MAX_PRICE,
+    MAX_SIGNALS_PER_EVENT,
     MAX_SPREAD,
     MAX_TOTAL_EXPOSURE_PCT,
+    MIN_CONFIDENCE,
+    MIN_GROSS_EDGE,
     MIN_HOURS_TO_CLOSE,
     MIN_LIQUIDITY,
     MIN_PRICE,
     MIN_VOLUME,
+    MODEL_ADJUSTMENT_SCALE,
+    REQUIRE_ORDERBOOK,
     REQUEST_BACKOFF_SECONDS,
     REQUEST_RETRIES,
     REQUEST_TIMEOUT_SECONDS,
@@ -180,7 +187,60 @@ def _resolved_binary_outcome(price):
     return None
 
 
+def _clamp(value, low=0.01, high=0.99):
+    return max(low, min(high, value))
+
+
+def _candidate_event_key(candidate):
+    return candidate.event_id or candidate.event_slug or candidate.market_slug
+
+
+def _recompute_candidate_edges(candidate):
+    candidate.gross_edge = candidate.fair - candidate.entry
+    candidate.net_edge = net_edge_after_costs(
+        fair_probability=candidate.fair,
+        entry_price=candidate.entry,
+        taker_fee_bps=TAKER_FEE_BPS,
+        slippage_bps=ESTIMATED_SLIPPAGE_BPS,
+        spread=candidate.spread,
+    )
+
+
+def _neutralize_candidates_by_event(candidates):
+    grouped = {}
+    for c in candidates:
+        grouped.setdefault(_candidate_event_key(c), []).append(c)
+
+    for group in grouped.values():
+        if len(group) <= 1:
+            continue
+        deltas = [c.fair - c.entry for c in group]
+        mean_delta = sum(deltas) / len(deltas)
+        for c in group:
+            centered = (c.fair - c.entry) - mean_delta
+            c.fair = _clamp(c.entry + (centered * EVENT_NEUTRALIZATION_STRENGTH))
+            _recompute_candidate_edges(c)
+
+
+def _dedupe_per_event(candidates):
+    grouped = {}
+    for c in candidates:
+        grouped.setdefault(_candidate_event_key(c), []).append(c)
+
+    selected = []
+    for group in grouped.values():
+        group = sorted(group, key=lambda x: x.net_edge, reverse=True)
+        selected.extend(group[:MAX_SIGNALS_PER_EVENT])
+    return selected
+
+
 def _passes_backtest_filters(market, rejects, use_liquidity_filter):
+    question = str(market.get("question") or "").lower()
+    for pattern in EXCLUDED_QUESTION_PATTERNS:
+        if pattern and pattern in question:
+            rejects["excluded_pattern"] += 1
+            return False
+
     volume_ref = market.get("volume24h", 0.0) or market.get("volume", 0.0)
     price = market.get("ref_price")
 
@@ -194,6 +254,12 @@ def _passes_backtest_filters(market, rejects, use_liquidity_filter):
 
     if price is None:
         rejects["no_price"] += 1
+        return False
+
+    if REQUIRE_ORDERBOOK and (
+        market.get("best_bid") is None or market.get("best_ask") is None
+    ):
+        rejects["no_orderbook"] += 1
         return False
 
     if price < MIN_PRICE or price > MAX_PRICE:
@@ -214,6 +280,7 @@ def _passes_backtest_filters(market, rejects, use_liquidity_filter):
 
 @dataclass
 class Candidate:
+    event_id: str
     question: str
     event_slug: str
     market_slug: str
@@ -222,6 +289,7 @@ class Candidate:
     settle_ts: int
     entry: float
     fair: float
+    gross_edge: float
     net_edge: float
     confidence: float
     resolved_outcome: int
@@ -252,10 +320,14 @@ def build_candidates(
     rejects = {
         "low_liquidity": 0,
         "low_volume": 0,
+        "excluded_pattern": 0,
         "no_price": 0,
+        "no_orderbook": 0,
         "extreme_price": 0,
         "wide_spread": 0,
         "near_expiry": 0,
+        "low_confidence": 0,
+        "low_gross_edge": 0,
     }
     reasons = {
         "not_binary": 0,
@@ -266,6 +338,7 @@ def build_candidates(
 
     selected = []
     history_requests = 0
+    stop_scan = False
     for event in events:
         event_slug = event.get("slug") or ""
         markets = event.get("markets") or []
@@ -303,7 +376,8 @@ def build_candidates(
                 continue
 
             if history_requests >= max_history_requests:
-                return selected, rejects, reasons
+                stop_scan = True
+                break
 
             hist_start_ts = entry_ts - (history_window_days * 24 * 3600)
             history_requests += 1
@@ -317,9 +391,23 @@ def build_candidates(
                 reasons["no_entry_price"] += 1
                 continue
 
-            spread = _safe_float(m.get("spread"))
-            if spread is not None and (spread < 0 or spread > 1):
-                spread = None
+            best_bid = _safe_float(m.get("bestBid"))
+            best_ask = _safe_float(m.get("bestAsk"))
+            spread = None
+            if (
+                best_bid is not None
+                and best_ask is not None
+                and 0 <= best_bid <= 1
+                and 0 <= best_ask <= 1
+                and best_ask >= best_bid
+            ):
+                spread = best_ask - best_bid
+            else:
+                best_bid = None
+                best_ask = None
+                spread = _safe_float(m.get("spread"))
+                if spread is not None and (spread < 0 or spread > 1):
+                    spread = None
 
             volume_total = _safe_float(m.get("volume")) or _safe_float(event.get("volume")) or 0.0
             volume_1wk = _safe_float(m.get("volume1wk")) or 0.0
@@ -334,8 +422,8 @@ def build_candidates(
                 "volume24h": volume24h_proxy,
                 "liquidity": _safe_float(m.get("liquidity")) or 0.0,
                 "ref_price": entry_price,
-                "best_bid": None,
-                "best_ask": None,
+                "best_bid": best_bid,
+                "best_ask": best_ask,
                 "spread": spread,
                 "last_trade": entry_price,
                 "one_hour_change": change_over(history, entry_ts, 3600),
@@ -344,7 +432,7 @@ def build_candidates(
                 "hours_to_close": float(entry_hours_before_close),
             }
 
-            if spread is not None:
+            if spread is not None and best_bid is None and best_ask is None:
                 snapshot["best_bid"] = max(0.0, entry_price - spread / 2.0)
                 snapshot["best_ask"] = min(1.0, entry_price + spread / 2.0)
 
@@ -352,21 +440,17 @@ def build_candidates(
                 continue
 
             metrics = evaluate_market(snapshot)
-            fair = estimated_probability(snapshot, metrics)
-            net_edge = net_edge_after_costs(
-                fair_probability=fair,
-                entry_price=entry_price,
-                taker_fee_bps=TAKER_FEE_BPS,
-                slippage_bps=ESTIMATED_SLIPPAGE_BPS,
-                spread=spread,
+            fair = estimated_probability(
+                snapshot,
+                metrics,
+                adjustment_scale=MODEL_ADJUSTMENT_SCALE,
             )
-            if fair is None or net_edge is None:
-                continue
-            if net_edge <= EDGE_THRESHOLD:
+            if fair is None:
                 continue
 
             selected.append(
                 Candidate(
+                    event_id=str(event.get("id") or ""),
                     question=snapshot["question"],
                     event_slug=event_slug,
                     market_slug=snapshot["slug"],
@@ -375,7 +459,8 @@ def build_candidates(
                     settle_ts=settle_ts,
                     entry=entry_price,
                     fair=fair,
-                    net_edge=net_edge,
+                    gross_edge=0.0,
+                    net_edge=0.0,
                     confidence=metrics.get("confidence", 0.5),
                     resolved_outcome=resolved_outcome,
                     spread=spread,
@@ -383,10 +468,31 @@ def build_candidates(
             )
             if len(selected) >= max_markets:
                 break
+        if stop_scan:
+            break
         if len(selected) >= max_markets:
             break
 
-    return selected, rejects, reasons
+    for candidate in selected:
+        _recompute_candidate_edges(candidate)
+
+    _neutralize_candidates_by_event(selected)
+
+    filtered = []
+    for candidate in selected:
+        if candidate.confidence < MIN_CONFIDENCE:
+            rejects["low_confidence"] += 1
+            continue
+        if candidate.gross_edge < MIN_GROSS_EDGE:
+            rejects["low_gross_edge"] += 1
+            continue
+        if candidate.net_edge is None or candidate.net_edge <= EDGE_THRESHOLD:
+            continue
+        filtered.append(candidate)
+
+    filtered = _dedupe_per_event(filtered)
+    filtered = sorted(filtered, key=lambda x: x.net_edge, reverse=True)[:max_markets]
+    return filtered, rejects, reasons
 
 
 def run_simulation(candidates, initial_bankroll: float):

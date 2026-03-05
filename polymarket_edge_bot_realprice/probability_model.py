@@ -3,7 +3,7 @@ def _clamp(value, low=0.01, high=0.99):
     return max(low, min(high, value))
 
 
-def estimated_probability(market, metrics):
+def estimated_probability(market, metrics, adjustment_scale=0.12):
     implied = market.get("ref_price")
     if implied is None:
         return None
@@ -15,7 +15,7 @@ def estimated_probability(market, metrics):
         - (metrics["anomaly"] - 0.5) * 0.20
     )
     # Keep adjustments intentionally small: market-implied probability stays anchor.
-    raw_adjustment = signal * 0.12
+    raw_adjustment = signal * adjustment_scale
     confidence = metrics.get("confidence", 0.5)
     adjusted = implied + (raw_adjustment * confidence)
 
