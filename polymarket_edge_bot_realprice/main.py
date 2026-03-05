@@ -29,7 +29,7 @@ def _event_key(market):
 def _market_link(market):
     slug = market.get("event_slug") or market.get("slug")
     if slug:
-        token_id = market.get("token_yes")
+        token_id = market.get("selected_token_id") or market.get("token_yes")
         if token_id:
             return f"https://polymarket.com/event/{slug}?tid={token_id}"
         return f"https://polymarket.com/event/{slug}"
@@ -134,8 +134,11 @@ def _neutralize_by_event(items):
 
 
 def _format_signal(rank, candidate):
+    outcome_text = candidate.get("selected_outcome") or "unknown"
+    outcome_num = (candidate.get("selected_outcome_index") or 0) + 1
     return (
         f"{rank}. {candidate['question']}\n"
+        f"BET: BUY {outcome_text} (outcome #{outcome_num})\n"
         f"{candidate['link']}\n"
         f"entry={candidate['entry']:.3f} fair={candidate['fair']:.3f} "
         f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
@@ -213,6 +216,8 @@ def run():
         candidate = {
             "event_key": item["event_key"],
             "question": item["market"].get("question"),
+            "selected_outcome": item["market"].get("selected_outcome"),
+            "selected_outcome_index": item["market"].get("selected_outcome_index"),
             "link": _market_link(item["market"]),
             "entry": item["entry"],
             "fair": item["fair"],

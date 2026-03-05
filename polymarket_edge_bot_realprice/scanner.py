@@ -36,38 +36,36 @@ def _parse_json_list(value):
     return []
 
 
-def _parse_yes_price(market):
-    prices = _parse_json_list(market.get("outcomePrices"))
-    outcomes = _parse_json_list(market.get("outcomes"))
-    if not prices:
-        return None
+def _selected_outcome_index(outcomes, prices, token_ids):
+    if not outcomes and not prices and not token_ids:
+        return 0
+    size = max(len(outcomes), len(prices), len(token_ids))
+    if size <= 0:
+        return 0
 
-    yes_index = 0
     for index, outcome in enumerate(outcomes):
         if isinstance(outcome, str) and outcome.strip().lower() in {"yes", "true"}:
-            yes_index = index
-            break
-
-    if yes_index >= len(prices):
-        yes_index = 0
-    return _safe_float(prices[yes_index])
+            if index < size:
+                return index
+    return 0
 
 
-def _parse_yes_token_id(market):
-    token_ids = _parse_json_list(market.get("clobTokenIds"))
-    outcomes = _parse_json_list(market.get("outcomes"))
-    if not token_ids:
+def _selected_outcome_name(outcomes, index):
+    if 0 <= index < len(outcomes):
+        name = str(outcomes[index]).strip()
+        if name:
+            return name
+    return f"Outcome #{index + 1}"
+
+
+def _value_at(seq, index, cast=str):
+    if not (0 <= index < len(seq)):
         return None
-
-    yes_index = 0
-    for index, outcome in enumerate(outcomes):
-        if isinstance(outcome, str) and outcome.strip().lower() in {"yes", "true"}:
-            yes_index = index
-            break
-
-    if yes_index >= len(token_ids):
-        yes_index = 0
-    return str(token_ids[yes_index])
+    value = seq[index]
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _extract_event_meta(market):
@@ -128,6 +126,14 @@ def _fetch_json(url):
 
 def _normalize_market(raw):
     event_meta = _extract_event_meta(raw)
+    outcomes = _parse_json_list(raw.get("outcomes"))
+    prices = _parse_json_list(raw.get("outcomePrices"))
+    token_ids = _parse_json_list(raw.get("clobTokenIds"))
+    selected_idx = _selected_outcome_index(outcomes, prices, token_ids)
+    selected_outcome = _selected_outcome_name(outcomes, selected_idx)
+    selected_price = _value_at(prices, selected_idx, cast=float)
+    selected_token = _value_at(token_ids, selected_idx, cast=str)
+
     best_bid = _safe_float(raw.get("bestBid"))
     best_ask = _safe_float(raw.get("bestAsk"))
     spread = None
@@ -143,8 +149,7 @@ def _normalize_market(raw):
         spread = best_ask - best_bid
         mid_from_book = (best_ask + best_bid) / 2
 
-    yes_price = _parse_yes_price(raw)
-    ref_price = mid_from_book if mid_from_book is not None else yes_price
+    ref_price = mid_from_book if mid_from_book is not None else selected_price
 
     return {
         "id": raw.get("id"),
@@ -159,7 +164,12 @@ def _normalize_market(raw):
         or _safe_float(raw.get("volume24hrClob"))
         or 0.0,
         "liquidity": _safe_float(raw.get("liquidity")) or 0.0,
-        "yes_price": yes_price,
+        "selected_outcome_index": selected_idx,
+        "selected_outcome": selected_outcome,
+        "selected_price": selected_price,
+        "selected_token_id": selected_token,
+        # Backward compatibility for older code paths.
+        "yes_price": selected_price,
         "ref_price": ref_price,
         "best_bid": best_bid,
         "best_ask": best_ask,
@@ -170,7 +180,7 @@ def _normalize_market(raw):
         "one_week_change": _safe_float(raw.get("oneWeekPriceChange")) or 0.0,
         "end_date": raw.get("endDate"),
         "hours_to_close": _hours_to_close(raw.get("endDate")),
-        "token_yes": _parse_yes_token_id(raw),
+        "token_yes": selected_token,
     }
 
 
