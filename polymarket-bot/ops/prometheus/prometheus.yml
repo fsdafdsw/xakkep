@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "ops_api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ops_api:8080"]
+  - job_name: "market_ingestor"
+    static_configs:
+      - targets: ["market_ingestor:9000"]
+  - job_name: "feature_service"
+    static_configs:
+      - targets: ["feature_service:9000"]
+  - job_name: "backtest_replay"
+    static_configs:
+      - targets: ["backtest_replay:9000"]
+  - job_name: "forecast_service"
+    static_configs:
+      - targets: ["forecast_service:9000"]
+  - job_name: "edge_engine"
+    static_configs:
+      - targets: ["edge_engine:9000"]
+  - job_name: "risk_engine"
+    static_configs:
+      - targets: ["risk_engine:9000"]
+  - job_name: "execution_engine"
+    static_configs:
+      - targets: ["execution_engine:9000"]

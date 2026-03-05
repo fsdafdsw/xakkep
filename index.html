@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Мяу-кнопка</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+    <div class="bg-orb orb-b" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="meow-counter" aria-live="polite">
+        <span class="meow-label">мяу</span>
+        <span class="meow-value" id="meowValue">0</span>
+      </div>
+    </header>
+
+    <main class="stage">
+      <button class="cat-button" id="catButton" aria-label="Мяукнуть">
+        <span class="cat-frame">
+          <span class="cat-portrait">
+            <img src="assets/cat.jpg" alt="Кот" />
+          </span>
+        </span>
+        <span class="cat-glow" aria-hidden="true"></span>
+        <span class="cat-ripple" aria-hidden="true"></span>
+      </button>
+      <div class="meow-pulse" id="meowPulse" aria-hidden="true">мяу</div>
+      <div class="meow-streak" id="meowStreak" aria-hidden="true"></div>
+    </main>
+
+    <audio id="meowAudio" preload="auto">
+      <source src="assets/meow.mp3" type="audio/mpeg" />
+      <source src="assets/meow.ogg" type="audio/ogg" />
+      <source src="assets/meow.wav" type="audio/wav" />
+    </audio>
+
+    <script src="app.js"></script>
+  </body>
+</html>

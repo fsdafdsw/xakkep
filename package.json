@@ -1,0 +1,10 @@
+{
+  "name": "meow-button",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cat meow button",
+  "scripts": {
+    "dev": "python3 -m http.server 5173",
+    "start": "python3 -m http.server 5173"
+  }
+}
