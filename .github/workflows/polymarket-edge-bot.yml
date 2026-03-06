@@ -35,6 +35,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ODDS_REGIONS: ${{ vars.ODDS_REGIONS }}
+          ODDS_BOOKMAKERS: ${{ vars.ODDS_BOOKMAKERS }}
           BOT_BUILD_ID: ${{ github.sha }}
           BOT_SOURCE: ${{ github.repository }}/${{ github.ref_name }}/run-${{ github.run_id }}
         run: python main.py
