@@ -326,6 +326,9 @@ def _build_rejection_payload(candidate, reason):
         "meta_confidence": candidate.meta_confidence,
         "graph_consistency": candidate.graph_consistency,
         "robustness_score": candidate.robustness_score,
+        "domain_name": candidate.model.get("domain_name"),
+        "domain_signal": candidate.model.get("domain_signal"),
+        "domain_confidence": candidate.model.get("domain_confidence"),
         "reject_reason": reason,
         "policy": dict(candidate.policy),
         "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
@@ -757,6 +760,9 @@ def build_candidates(
         "edge_distributions": {
             "confidence": distribution_stats([candidate.confidence for candidate in selected]),
             "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in selected]),
+            "domain_confidence": distribution_stats(
+                [candidate.model.get("domain_confidence", 0.5) for candidate in selected]
+            ),
             "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in selected]),
             "robustness_score": distribution_stats([candidate.robustness_score for candidate in selected]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in selected]),
@@ -776,6 +782,9 @@ def build_candidates(
             "count": len(group),
             "confidence": distribution_stats([candidate.confidence for candidate in group]),
             "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in group]),
+            "domain_confidence": distribution_stats(
+                [candidate.model.get("domain_confidence", 0.5) for candidate in group]
+            ),
             "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in group]),
             "robustness_score": distribution_stats([candidate.robustness_score for candidate in group]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in group]),
@@ -983,7 +992,7 @@ def main():
                 f"net_edge={item['net_edge']:.3f} gross_edge={item['gross_edge']:.3f} "
                 f"net_edge_lcb={item['net_edge_lcb']:.3f} "
                 f"conf={item['confidence']:.2f} meta={item['meta_confidence']:.2f} "
-                f"graph={item['graph_consistency']:.2f}\n"
+                f"graph={item['graph_consistency']:.2f} domain={item['domain_name']}\n"
                 f"  {item['question']}\n"
                 f"  {item['link']}"
             )
@@ -1015,6 +1024,9 @@ def main():
                     "meta_confidence": c.meta_confidence,
                     "graph_consistency": c.graph_consistency,
                     "robustness_score": c.robustness_score,
+                    "domain_name": c.model.get("domain_name"),
+                    "domain_signal": c.model.get("domain_signal"),
+                    "domain_confidence": c.model.get("domain_confidence"),
                     "market_type": c.market_type,
                     "category_group": c.category_group,
                     "outlay_usd": outlay,

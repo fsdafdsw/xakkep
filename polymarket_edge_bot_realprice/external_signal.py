@@ -1,6 +1,8 @@
 import math
 import re
 
+from config import DOMAIN_CONFIDENCE_WEIGHT, DOMAIN_SIGNAL_WEIGHT
+from domain_predictor import compute_domain_predictor
 from market_profile import as_int, contains_any, enrich_market_profile, normalize_text
 
 
@@ -156,6 +158,7 @@ def compute_external_signal(market):
     horizon_risk = _horizon_risk(market.get("hours_to_close"))
     price_prior = _favorite_longshot_prior(market, question_text)
     category_risk = _category_risk(market, question_text)
+    domain = compute_domain_predictor(market)
 
     signal = 0.5
     signal += (specificity - 0.5) * 0.12
@@ -165,6 +168,7 @@ def compute_external_signal(market):
     signal -= horizon_risk * 0.10
     signal -= category_risk * 0.08
     signal += profile["signal_bias"]
+    signal += (domain["signal"] - 0.5) * DOMAIN_SIGNAL_WEIGHT
 
     confidence = 0.54
     confidence += (specificity - 0.5) * 0.25
@@ -173,6 +177,7 @@ def compute_external_signal(market):
     confidence -= horizon_risk * 0.12
     confidence -= category_risk * 0.10
     confidence += profile["confidence_bias"]
+    confidence += (domain["confidence"] - 0.5) * DOMAIN_CONFIDENCE_WEIGHT
 
     return {
         "signal": _clamp(signal),
@@ -181,6 +186,9 @@ def compute_external_signal(market):
         "category_group": profile["category_group"],
         "adjustment_multiplier": profile["adjustment_multiplier"],
         "factor_weights": profile["factor_weights"],
+        "domain_name": domain["name"],
+        "domain_signal": domain["signal"],
+        "domain_confidence": domain["confidence"],
         "components": {
             "specificity": specificity,
             "resolution_quality": resolution_quality,
@@ -191,5 +199,11 @@ def compute_external_signal(market):
             "signal_bias": profile["signal_bias"],
             "confidence_bias": profile["confidence_bias"],
             "structure_flags": profile["structure_flags"],
+            "domain": {
+                "name": domain["name"],
+                "signal": domain["signal"],
+                "confidence": domain["confidence"],
+                "components": domain["components"],
+            },
         },
     }

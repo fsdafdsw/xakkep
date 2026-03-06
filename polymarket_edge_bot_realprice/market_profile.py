@@ -49,7 +49,24 @@ _PRICE_TARGET_KEYWORDS = (
     "close at",
 )
 _POLITICS_KEYWORDS = ("politic", "election", "president", "nomination", "seat", "prime minister")
-_SPORTS_KEYWORDS = ("nba", "nfl", "nhl", "mlb", "f1", "cup", "final", "mvp", "champion")
+_SPORTS_KEYWORDS = (
+    "nba",
+    "nfl",
+    "nhl",
+    "mlb",
+    "f1",
+    "cup",
+    "final",
+    "mvp",
+    "champion",
+    "soccer",
+    "football",
+    "premier league",
+    "bundesliga",
+    "ligue 1",
+    "serie a",
+    "la liga",
+)
 _ENTERTAINMENT_KEYWORDS = ("movie", "film", "oscars", "academy award", "eurovision", "box office")
 _CRYPTO_KEYWORDS = ("bitcoin", "btc", "eth", "ethereum", "sol", "crypto", "token")
 _BUSINESS_KEYWORDS = ("market cap", "stock", "company", "earnings", "apple", "tesla", "nvidia")

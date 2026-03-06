@@ -49,12 +49,18 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     anomaly = _safe_float(metrics.get("anomaly"), 0.5)
     base_confidence = _safe_float(metrics.get("confidence"), 0.5)
     external_confidence = _safe_float(metrics.get("external_confidence"), 0.5)
+    domain_confidence = _safe_float(metrics.get("domain_confidence"), external_confidence)
     external_components = metrics.get("external_components") or {}
+    domain = external_components.get("domain") or {}
+    domain_components = domain.get("components") or {}
     resolution_quality = _safe_float(external_components.get("resolution_quality"), 0.5)
     specificity = _safe_float(external_components.get("specificity"), 0.5)
     horizon_risk = _safe_float(external_components.get("horizon_risk"), 0.25)
     category_risk = _safe_float(external_components.get("category_risk"), 0.0)
     competition_risk = _safe_float(external_components.get("competition_risk"), 0.0)
+    domain_draw_penalty = _safe_float(domain_components.get("structural_penalty"), 0.0)
+    domain_line_confirmation = _safe_float(domain_components.get("line_confirmation"), 0.0)
+    domain_noise_flag = 1.0 if domain.get("name") == "intraday_noise_penalty" else 0.0
     price_extremeness = _clamp(abs(float(implied) - 0.5) / 0.5)
     spread = market.get("spread")
     spread_risk = _clamp((_safe_float(spread, 0.0)) / 0.10)
@@ -67,9 +73,11 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     reliability += orderbook * 0.16
     reliability += (1.0 - anomaly) * 0.18
     reliability += external_confidence * 0.14
+    reliability += domain_confidence * 0.08
     reliability += resolution_quality * 0.10
     reliability += specificity * 0.08
     reliability += base_confidence * 0.08
+    reliability += max(0.0, domain_line_confirmation) * 0.08
 
     skepticism = 0.0
     skepticism += horizon_risk * 0.24
@@ -78,6 +86,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     skepticism += spread_risk * 0.12
     skepticism += price_extremeness * 0.10
     skepticism += multi_outcome_risk * 0.08
+    skepticism += domain_draw_penalty * 0.20
+    skepticism += domain_noise_flag * 0.18
 
     supported_adjustment = min(raw_adjustment, 0.035) / 0.035
     overreach = max(0.0, raw_adjustment - (0.008 + (0.030 * reliability)))
@@ -96,6 +106,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     uncertainty += multi_outcome_risk * UNCERTAINTY_MULTI_OUTCOME_WEIGHT
     uncertainty += competition_risk * 0.012
     uncertainty += price_extremeness * 0.015
+    uncertainty += domain_draw_penalty * 0.012
+    uncertainty += domain_noise_flag * 0.018
     uncertainty += max(0.0, 0.60 - meta_confidence) * 0.040
     uncertainty = max(0.004, min(uncertainty, 0.18))
 
@@ -147,5 +159,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
             "graph_penalty": graph_penalty,
             "regime_penalty": regime_penalty,
             "total_penalty": total_penalty,
+            "domain_name": domain.get("name"),
+            "domain_draw_penalty": domain_draw_penalty,
+            "domain_line_confirmation": domain_line_confirmation,
+            "domain_noise_flag": domain_noise_flag,
         },
     }

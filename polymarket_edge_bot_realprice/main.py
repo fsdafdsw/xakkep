@@ -151,6 +151,7 @@ def _format_signal(rank, candidate):
         f"net_edge_lcb={candidate['net_edge_lcb']:.3f}\n"
         f"confidence={candidate['confidence']:.2f} meta={candidate['meta_confidence']:.2f} "
         f"graph={candidate['graph_consistency']:.2f} robust={candidate['robustness_score']:.2f} "
+        f"domain={candidate['domain_name']} "
         f"stake=${candidate['stake_usd']:.2f}"
     )
 
@@ -284,6 +285,9 @@ def run():
             "meta_confidence": meta_confidence,
             "graph_consistency": graph_consistency,
             "robustness_score": robustness_score,
+            "domain_name": item["metrics"].get("domain_name"),
+            "domain_signal": item["metrics"].get("domain_signal"),
+            "domain_confidence": item["metrics"].get("domain_confidence"),
             "stake_usd": max(stake_usd, 0.0),
             "model": {
                 "quality": item["metrics"].get("quality"),
@@ -293,6 +297,9 @@ def run():
                 "news": item["metrics"].get("news"),
                 "external": item["metrics"].get("external"),
                 "external_confidence": item["metrics"].get("external_confidence"),
+                "domain_name": item["metrics"].get("domain_name"),
+                "domain_signal": item["metrics"].get("domain_signal"),
+                "domain_confidence": item["metrics"].get("domain_confidence"),
                 "adjustment_multiplier": item["metrics"].get("adjustment_multiplier"),
                 "factor_weights": item["metrics"].get("factor_weights"),
                 "external_components": item["metrics"].get("external_components"),
