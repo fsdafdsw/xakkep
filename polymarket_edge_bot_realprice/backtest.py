@@ -463,6 +463,7 @@ def build_candidates(
     }
 
     selected = []
+    prepared_snapshots = []
     edge_rejections = []
     history_requests = 0
     stop_scan = False
