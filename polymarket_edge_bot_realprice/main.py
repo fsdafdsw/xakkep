@@ -141,6 +141,12 @@ def _annotate_event_graph_and_robust_signal(items):
 def _format_signal(rank, candidate):
     outcome_text = candidate.get("selected_outcome") or "unknown"
     outcome_num = (candidate.get("selected_outcome_index") or 0) + 1
+    odds_bits = ""
+    if candidate.get("odds_implied_probability") is not None:
+        odds_bits = (
+            f" odds={candidate['odds_implied_probability']:.3f}"
+            f" books={candidate.get('odds_bookmaker_count', 0)}"
+        )
     return (
         f"{rank}. {candidate['question']}\n"
         f"BET: BUY {outcome_text} (outcome #{outcome_num})\n"
@@ -151,7 +157,7 @@ def _format_signal(rank, candidate):
         f"net_edge_lcb={candidate['net_edge_lcb']:.3f}\n"
         f"confidence={candidate['confidence']:.2f} meta={candidate['meta_confidence']:.2f} "
         f"graph={candidate['graph_consistency']:.2f} robust={candidate['robustness_score']:.2f} "
-        f"domain={candidate['domain_name']} "
+        f"domain={candidate['domain_name']}{odds_bits} "
         f"stake=${candidate['stake_usd']:.2f}"
     )
 
@@ -288,6 +294,16 @@ def run():
             "domain_name": item["metrics"].get("domain_name"),
             "domain_signal": item["metrics"].get("domain_signal"),
             "domain_confidence": item["metrics"].get("domain_confidence"),
+            "odds_implied_probability": (
+                ((item["metrics"].get("external_components") or {}).get("domain") or {})
+                .get("components", {})
+                .get("implied_probability")
+            ),
+            "odds_bookmaker_count": (
+                ((item["metrics"].get("external_components") or {}).get("domain") or {})
+                .get("components", {})
+                .get("bookmaker_count")
+            ),
             "stake_usd": max(stake_usd, 0.0),
             "model": {
                 "quality": item["metrics"].get("quality"),

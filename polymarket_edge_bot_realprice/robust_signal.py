@@ -61,6 +61,10 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     domain_draw_penalty = _safe_float(domain_components.get("structural_penalty"), 0.0)
     domain_line_confirmation = _safe_float(domain_components.get("line_confirmation"), 0.0)
     domain_noise_flag = 1.0 if domain.get("name") == "intraday_noise_penalty" else 0.0
+    odds_match_quality = _safe_float(domain_components.get("match_quality"), 0.0)
+    odds_bookmaker_count = _safe_float(domain_components.get("bookmaker_count"), 0.0)
+    odds_dispersion = _safe_float(domain_components.get("probability_dispersion"), 0.0)
+    odds_feed_flag = 1.0 if domain.get("name") == "sports_odds_feed" else 0.0
     price_extremeness = _clamp(abs(float(implied) - 0.5) / 0.5)
     spread = market.get("spread")
     spread_risk = _clamp((_safe_float(spread, 0.0)) / 0.10)
@@ -78,6 +82,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     reliability += specificity * 0.08
     reliability += base_confidence * 0.08
     reliability += max(0.0, domain_line_confirmation) * 0.08
+    reliability += odds_match_quality * 0.10
+    reliability += min(0.10, odds_bookmaker_count * 0.015)
+    reliability += odds_feed_flag * 0.06
 
     skepticism = 0.0
     skepticism += horizon_risk * 0.24
@@ -88,6 +95,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     skepticism += multi_outcome_risk * 0.08
     skepticism += domain_draw_penalty * 0.20
     skepticism += domain_noise_flag * 0.18
+    skepticism += min(0.12, odds_dispersion * 2.8)
 
     supported_adjustment = min(raw_adjustment, 0.035) / 0.035
     overreach = max(0.0, raw_adjustment - (0.008 + (0.030 * reliability)))
@@ -108,6 +116,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     uncertainty += price_extremeness * 0.015
     uncertainty += domain_draw_penalty * 0.012
     uncertainty += domain_noise_flag * 0.018
+    uncertainty += min(0.015, odds_dispersion * 0.50)
+    uncertainty -= min(0.012, odds_match_quality * 0.012)
+    uncertainty -= min(0.010, odds_bookmaker_count * 0.0015)
     uncertainty += max(0.0, 0.60 - meta_confidence) * 0.040
     uncertainty = max(0.004, min(uncertainty, 0.18))
 
@@ -163,5 +174,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
             "domain_draw_penalty": domain_draw_penalty,
             "domain_line_confirmation": domain_line_confirmation,
             "domain_noise_flag": domain_noise_flag,
+            "odds_feed_flag": odds_feed_flag,
+            "odds_match_quality": odds_match_quality,
+            "odds_bookmaker_count": odds_bookmaker_count,
+            "odds_dispersion": odds_dispersion,
         },
     }

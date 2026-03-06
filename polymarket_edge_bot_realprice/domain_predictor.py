@@ -1,6 +1,7 @@
 import re
 
 from market_profile import contains_any, normalize_text
+from odds_feed import get_market_odds_prior
 
 
 _WIN_ON_DATE_RE = re.compile(
@@ -185,6 +186,15 @@ def _sports_match_predictor(market, question_text):
     }
 
 
+def _sports_odds_feed_predictor(market, question_text):
+    subject = _parse_subject_team(question_text)
+    if not subject:
+        return None
+    if market.get("market_type") not in {"dated_binary", "near_term_binary", "winner_multi"}:
+        return None
+    return get_market_odds_prior(market)
+
+
 def _intraday_noise_predictor(market, question_text):
     if not _UP_DOWN_RE.search(question_text):
         return None
@@ -252,6 +262,7 @@ def compute_domain_predictor(market):
     question_text = normalize_text(market.get("question"))
 
     for builder in (
+        _sports_odds_feed_predictor,
         _sports_match_predictor,
         _intraday_noise_predictor,
         _dated_binary_prior,
