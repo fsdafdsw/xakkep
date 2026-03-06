@@ -34,6 +34,7 @@ from filter_policy import (
 from graph_residuals import annotate_relation_residuals
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
+from research_dataset import build_snapshot_row, resolve_dataset_output, write_jsonl
 from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
 from robust_signal import compute_robust_signal
@@ -197,6 +198,14 @@ def _clamp(value, low=0.01, high=0.99):
 
 def _candidate_event_key(candidate):
     return candidate.event_id or candidate.event_slug or candidate.market_slug
+
+
+def _candidate_key(candidate):
+    return (
+        candidate.event_id,
+        candidate.token_id,
+        candidate.entry_ts,
+    )
 
 
 def _recompute_candidate_edges(candidate):
@@ -494,6 +503,7 @@ def _annotate_candidates_with_graph_and_robust_signal(candidates):
         candidate.gross_edge_lcb = robust["gross_edge_lcb"]
         candidate.net_edge_lcb = robust["net_edge_lcb"]
         candidate.robustness_score = robust["robustness_score"]
+        candidate.model["graph"] = graph
         candidate.model["robust"] = robust
 
 
@@ -564,6 +574,7 @@ def build_candidates(
 
     selected = []
     prepared_snapshots = []
+    decision_map = {}
     edge_rejections = []
     history_requests = 0
     stop_scan = False
@@ -784,6 +795,14 @@ def build_candidates(
     _annotate_candidates_with_graph_and_robust_signal(selected)
 
     for candidate in selected:
+        decision_map[_candidate_key(candidate)] = {
+            "status": "scored",
+            "reject_reason": None,
+            "selected_for_trade": False,
+            "trade_bucket": None,
+        }
+
+    for candidate in selected:
         _bump_stage(
             diagnostics,
             "post_neutralization",
@@ -798,6 +817,8 @@ def build_candidates(
         if candidate.confidence < score_policy["min_confidence"]:
             rejects["low_confidence"] += 1
             _bump_reject(diagnostics, "low_confidence", candidate.market_type, candidate.category_group)
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_confidence"
             continue
         _bump_stage(
             diagnostics,
@@ -810,6 +831,8 @@ def build_candidates(
             rejects["low_gross_edge"] += 1
             _bump_reject(diagnostics, "low_gross_edge", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_gross_edge"
             continue
         _bump_stage(
             diagnostics,
@@ -822,6 +845,8 @@ def build_candidates(
             rejects["low_meta_confidence"] += 1
             _bump_reject(diagnostics, "low_meta_confidence", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_meta_confidence"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_confidence"
             continue
         _bump_stage(
             diagnostics,
@@ -834,6 +859,8 @@ def build_candidates(
             rejects["low_graph_consistency"] += 1
             _bump_reject(diagnostics, "low_graph_consistency", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_graph_consistency"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_graph_consistency"
             continue
         _bump_stage(
             diagnostics,
@@ -846,6 +873,8 @@ def build_candidates(
             rejects["low_robustness"] += 1
             _bump_reject(diagnostics, "low_robustness", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_robustness"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_robustness"
             continue
         _bump_stage(
             diagnostics,
@@ -858,6 +887,8 @@ def build_candidates(
             rejects["low_lcb_edge"] += 1
             _bump_reject(diagnostics, "low_lcb_edge", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_lcb_edge"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_lcb_edge"
             continue
         _bump_stage(
             diagnostics,
@@ -871,6 +902,8 @@ def build_candidates(
             rejects["low_net_edge"] += 1
             _bump_reject(diagnostics, "low_net_edge", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
+            decision_map[_candidate_key(candidate)]["status"] = "rejected"
+            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_net_edge"
             continue
         _bump_stage(
             diagnostics,
@@ -880,19 +913,37 @@ def build_candidates(
         )
         filtered.append(candidate)
 
+    pre_dedupe = list(filtered)
     filtered = _dedupe_per_event(filtered)
+    kept_keys = {_candidate_key(candidate) for candidate in filtered}
+    for candidate in pre_dedupe:
+        key = _candidate_key(candidate)
+        if key not in kept_keys:
+            decision_map[key]["status"] = "rejected"
+            decision_map[key]["reject_reason"] = "event_deduped"
+
     filtered = sorted(
         filtered,
         key=lambda x: (x.net_edge_lcb, x.robustness_score, x.net_edge),
         reverse=True,
     )[:max_markets]
+    final_keys = {_candidate_key(candidate) for candidate in filtered}
     for candidate in filtered:
+        decision_map[_candidate_key(candidate)]["status"] = "final_candidate"
+        decision_map[_candidate_key(candidate)]["selected_for_trade"] = True
+        decision_map[_candidate_key(candidate)]["trade_bucket"] = "value"
         _bump_stage(
             diagnostics,
             "final_candidates",
             market_type=candidate.market_type,
             category_group=candidate.category_group,
         )
+
+    for candidate in pre_dedupe:
+        key = _candidate_key(candidate)
+        if key in kept_keys and key not in final_keys:
+            decision_map[key]["status"] = "rejected"
+            decision_map[key]["reject_reason"] = "rank_truncated"
 
     diagnostics_payload = {
         "stage_counts": dict(sorted(diagnostics["stage_counts"].items())),
@@ -1026,7 +1077,20 @@ def build_candidates(
             "net_edge_lcb": distribution_stats([candidate.net_edge_lcb for candidate in group]),
         }
 
-    return filtered, rejects, reasons, diagnostics_payload
+    dataset_rows = [
+        build_snapshot_row(
+            candidate,
+            decision=decision_map.get(_candidate_key(candidate), {"status": "scored"}),
+            context={
+                "start_date": datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d"),
+                "end_date": datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d"),
+                "entry_hours_before_close": entry_hours_before_close,
+            },
+        )
+        for candidate in selected
+    ]
+
+    return filtered, rejects, reasons, diagnostics_payload, dataset_rows
 
 
 def run_simulation(candidates, initial_bankroll: float):
@@ -1138,6 +1202,11 @@ def parse_args():
     parser.add_argument("--initial-bankroll", type=float, default=10.0)
     parser.add_argument("--json-output", default=None, help="Write machine-readable summary to a JSON file.")
     parser.add_argument(
+        "--dataset-output",
+        default=None,
+        help="Write research snapshot dataset to JSONL. Pass a .jsonl path or a directory.",
+    )
+    parser.add_argument(
         "--use-liquidity-filter",
         action="store_true",
         help="Enable liquidity filter (usually too strict on closed snapshots).",
@@ -1170,7 +1239,7 @@ def main():
     print(f"Fetched events: {len(events)}")
 
     print("Building candidates and replaying model signals...")
-    candidates, rejects, reasons, diagnostics = build_candidates(
+    candidates, rejects, reasons, diagnostics, dataset_rows = build_candidates(
         events=events,
         start_ts=start_ts,
         end_ts=end_ts,
@@ -1182,6 +1251,7 @@ def main():
         max_history_requests=args.max_history_requests,
     )
     print(f"Candidates passing edge threshold: {len(candidates)}")
+    print(f"Scored snapshots exported-ready: {len(dataset_rows)}")
 
     summary = run_simulation(candidates, initial_bankroll=args.initial_bankroll)
 
@@ -1338,6 +1408,7 @@ def main():
                 "skipped_no_cash": summary["skipped_no_cash"],
                 "skipped_exposure": summary["skipped_exposure"],
                 "candidate_count": len(candidates),
+                "dataset_row_count": len(dataset_rows),
             },
             "rejects": rejects,
             "drop_reasons": reasons,
@@ -1346,6 +1417,11 @@ def main():
         }
         with open(args.json_output, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, ensure_ascii=True)
+
+    if args.dataset_output:
+        dataset_path = resolve_dataset_output(args.dataset_output, args.start_date, args.end_date)
+        write_jsonl(dataset_rows, dataset_path)
+        print(f"Research dataset written: {dataset_path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,136 @@
+import json
+from pathlib import Path
+
+from config import ESTIMATED_SLIPPAGE_BPS, REPORTS_DIR, TAKER_FEE_BPS
+
+
+def _to_utc_str(ts):
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _safe_float(value, default=None):
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def cost_per_share(entry_price, spread):
+    entry = _safe_float(entry_price, default=None)
+    if entry is None:
+        return None
+
+    fee = entry * ((TAKER_FEE_BPS + ESTIMATED_SLIPPAGE_BPS) / 10000.0)
+    half_spread = (_safe_float(spread, default=0.0) or 0.0) / 2.0
+    return fee + half_spread
+
+
+def realized_pnl_per_share(candidate):
+    entry = _safe_float(getattr(candidate, "entry", None), default=None)
+    resolved = _safe_float(getattr(candidate, "resolved_outcome", None), default=None)
+    if entry is None or resolved is None:
+        return None
+
+    cost = cost_per_share(entry, getattr(candidate, "spread", None)) or 0.0
+    return resolved - entry - cost
+
+
+def resolve_dataset_output(path_or_dir, start_date, end_date):
+    if not path_or_dir or str(path_or_dir).strip().lower() == "auto":
+        return REPORTS_DIR / "research" / f"snapshots_{start_date}_{end_date}.jsonl"
+
+    path = Path(path_or_dir)
+    if path.suffix.lower() == ".jsonl":
+        return path
+    return path / f"snapshots_{start_date}_{end_date}.jsonl"
+
+
+def build_snapshot_row(candidate, decision, context):
+    model = getattr(candidate, "model", {}) or {}
+    external_components = model.get("external_components") or {}
+    relation_metrics = external_components.get("relation_metrics") or {}
+    relation_residual = external_components.get("relation_residual") or {}
+    resolution_metadata = external_components.get("resolution_metadata") or {}
+    robust = model.get("robust") or {}
+    robust_components = robust.get("components") or {}
+    graph_metrics = model.get("graph") or {}
+    pnl_per_share = realized_pnl_per_share(candidate)
+
+    return {
+        "dataset_version": 1,
+        "snapshot_id": f"{getattr(candidate, 'token_id', 'unknown')}:{getattr(candidate, 'entry_ts', 0)}",
+        "period_start_date": context["start_date"],
+        "period_end_date": context["end_date"],
+        "entry_timing_hours_before_close": context["entry_hours_before_close"],
+        "event_id": getattr(candidate, "event_id", None),
+        "event_slug": getattr(candidate, "event_slug", None),
+        "market_slug": getattr(candidate, "market_slug", None),
+        "token_id": getattr(candidate, "token_id", None),
+        "question": getattr(candidate, "question", None),
+        "market_type": getattr(candidate, "market_type", None),
+        "category_group": getattr(candidate, "category_group", None),
+        "entry_ts": getattr(candidate, "entry_ts", None),
+        "entry_utc": _to_utc_str(getattr(candidate, "entry_ts", 0)) if getattr(candidate, "entry_ts", None) else None,
+        "settle_ts": getattr(candidate, "settle_ts", None),
+        "settle_utc": _to_utc_str(getattr(candidate, "settle_ts", 0)) if getattr(candidate, "settle_ts", None) else None,
+        "entry_price": getattr(candidate, "entry", None),
+        "market_implied": getattr(candidate, "entry", None),
+        "spread": getattr(candidate, "spread", None),
+        "fair": getattr(candidate, "fair", None),
+        "fair_lcb": getattr(candidate, "fair_lcb", None),
+        "gross_edge": getattr(candidate, "gross_edge", None),
+        "net_edge": getattr(candidate, "net_edge", None),
+        "gross_edge_lcb": getattr(candidate, "gross_edge_lcb", None),
+        "net_edge_lcb": getattr(candidate, "net_edge_lcb", None),
+        "confidence": getattr(candidate, "confidence", None),
+        "meta_confidence": getattr(candidate, "meta_confidence", None),
+        "graph_consistency": getattr(candidate, "graph_consistency", None),
+        "robustness_score": getattr(candidate, "robustness_score", None),
+        "resolved_outcome": getattr(candidate, "resolved_outcome", None),
+        "realized_pnl_per_share": pnl_per_share,
+        "realized_positive_after_costs": bool(pnl_per_share is not None and pnl_per_share > 0.0),
+        "expected_positive_after_costs": bool((_safe_float(getattr(candidate, "net_edge", None), 0.0) or 0.0) > 0.0),
+        "decision_status": decision.get("status"),
+        "reject_reason": decision.get("reject_reason"),
+        "selected_for_trade": bool(decision.get("selected_for_trade")),
+        "trade_bucket": decision.get("trade_bucket"),
+        "domain_name": model.get("domain_name"),
+        "domain_signal": model.get("domain_signal"),
+        "domain_confidence": model.get("domain_confidence"),
+        "semantic_family": resolution_metadata.get("family"),
+        "semantic_confidence": resolution_metadata.get("confidence"),
+        "relation_degree": relation_metrics.get("relation_degree"),
+        "relation_confidence": relation_metrics.get("relation_confidence"),
+        "relation_support_price": relation_residual.get("support_price"),
+        "relation_support_confidence": relation_residual.get("support_confidence"),
+        "relation_residual": relation_residual.get("residual"),
+        "relation_inconsistency": relation_residual.get("inconsistency_score"),
+        "cost_per_share": cost_per_share(getattr(candidate, "entry", None), getattr(candidate, "spread", None)),
+        "features": {
+            "quality": model.get("quality"),
+            "momentum": model.get("momentum"),
+            "anomaly": model.get("anomaly"),
+            "orderbook": model.get("orderbook"),
+            "news": model.get("news"),
+            "external": model.get("external"),
+            "external_confidence": model.get("external_confidence"),
+            "adjustment_multiplier": model.get("adjustment_multiplier"),
+            "factor_weights": model.get("factor_weights"),
+        },
+        "policy": dict(getattr(candidate, "policy", {}) or {}),
+        "graph_metrics": graph_metrics,
+        "external_components": external_components,
+        "robust_components": robust_components,
+    }
+
+
+def write_jsonl(rows, output_path):
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=True) + "\n")
