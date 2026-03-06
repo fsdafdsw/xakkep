@@ -11,15 +11,12 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from config import (
-    EDGE_THRESHOLD,
     ESTIMATED_SLIPPAGE_BPS,
     EVENT_NEUTRALIZATION_STRENGTH,
     KELLY_FRACTION,
     MAX_BET_USD,
     MAX_SIGNALS_PER_EVENT,
     MAX_TOTAL_EXPOSURE_PCT,
-    MIN_CONFIDENCE,
-    MIN_GROSS_EDGE,
     MODEL_ADJUSTMENT_SCALE,
     REQUEST_BACKOFF_SECONDS,
     REQUEST_RETRIES,
@@ -27,7 +24,11 @@ from config import (
     TAKER_FEE_BPS,
 )
 from diagnostics import distribution_stats
-from filter_policy import filter_reason
+from filter_policy import (
+    filter_reason,
+    scoring_policy_for_market_type,
+    signal_bucket,
+)
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from strategy import evaluate_market
@@ -290,6 +291,7 @@ def _finalize_stage_map(stage_map):
 
 
 def _build_rejection_payload(candidate, reason):
+    score_policy = scoring_policy_for_market_type(candidate.market_type)
     return {
         "question": candidate.question,
         "event_slug": candidate.event_slug,
@@ -303,6 +305,12 @@ def _build_rejection_payload(candidate, reason):
         "net_edge": candidate.net_edge,
         "confidence": candidate.confidence,
         "reject_reason": reason,
+        "policy": {
+            "min_confidence": score_policy["min_confidence"],
+            "min_gross_edge": score_policy["min_gross_edge"],
+            "edge_threshold": score_policy["edge_threshold"],
+            "watch_threshold": score_policy["watch_threshold"],
+        },
         "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
     }
 
@@ -359,6 +367,7 @@ def build_candidates(
         "near_expiry": 0,
         "low_confidence": 0,
         "low_gross_edge": 0,
+        "low_net_edge": 0,
     }
     reasons = {
         "not_binary": 0,
@@ -567,7 +576,8 @@ def build_candidates(
 
     filtered = []
     for candidate in selected:
-        if candidate.confidence < MIN_CONFIDENCE:
+        score_policy = scoring_policy_for_market_type(candidate.market_type)
+        if candidate.confidence < score_policy["min_confidence"]:
             rejects["low_confidence"] += 1
             continue
         _bump_stage(
@@ -576,7 +586,8 @@ def build_candidates(
             market_type=candidate.market_type,
             category_group=candidate.category_group,
         )
-        if candidate.gross_edge < MIN_GROSS_EDGE:
+
+        if candidate.gross_edge < score_policy["min_gross_edge"]:
             rejects["low_gross_edge"] += 1
             edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
             continue
@@ -586,7 +597,9 @@ def build_candidates(
             market_type=candidate.market_type,
             category_group=candidate.category_group,
         )
-        if candidate.net_edge is None or candidate.net_edge <= EDGE_THRESHOLD:
+        bucket = signal_bucket(candidate.net_edge, score_policy)
+        if bucket != "value":
+            rejects["low_net_edge"] += 1
             edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
             continue
         _bump_stage(

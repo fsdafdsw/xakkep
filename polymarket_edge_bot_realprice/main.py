@@ -3,7 +3,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import *
-from filter_policy import filter_reason
+from filter_policy import (
+    filter_reason,
+    scoring_policy_for_market,
+    signal_bucket,
+)
 from probability_model import (
     estimated_probability,
     kelly_bet_fraction,
@@ -140,6 +144,7 @@ def run():
         "near_expiry": 0,
         "low_confidence": 0,
         "low_gross_edge": 0,
+        "low_net_edge": 0,
     }
     coverage = {
         "price_available": 0,
@@ -183,12 +188,13 @@ def run():
     skipped_by_exposure = 0
 
     for item in accepted:
+        score_policy = scoring_policy_for_market(item["market"])
         confidence = item["metrics"].get("confidence", 0.5)
-        if confidence < MIN_CONFIDENCE:
+        if confidence < score_policy["min_confidence"]:
             rejects["low_confidence"] += 1
             continue
 
-        if item["gross_edge"] < MIN_GROSS_EDGE:
+        if item["gross_edge"] < score_policy["min_gross_edge"]:
             rejects["low_gross_edge"] += 1
             continue
 
@@ -218,12 +224,21 @@ def run():
                 "factor_weights": item["metrics"].get("factor_weights"),
                 "external_components": item["metrics"].get("external_components"),
             },
+            "policy": {
+                "min_confidence": score_policy["min_confidence"],
+                "min_gross_edge": score_policy["min_gross_edge"],
+                "edge_threshold": score_policy["edge_threshold"],
+                "watch_threshold": score_policy["watch_threshold"],
+            },
         }
 
-        if item["net_edge"] > EDGE_THRESHOLD:
+        bucket = signal_bucket(item["net_edge"], score_policy)
+        if bucket == "value":
             value_bets.append(candidate)
-        elif item["net_edge"] > WATCH_THRESHOLD:
+        elif bucket == "watch":
             watchlist.append(candidate)
+        else:
+            rejects["low_net_edge"] += 1
 
     value_bets_sorted = sorted(value_bets, key=lambda x: x["net_edge"], reverse=True)
     exposure_cap = BANKROLL_USD * MAX_TOTAL_EXPOSURE_PCT
