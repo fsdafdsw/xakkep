@@ -89,10 +89,15 @@ def _run_backtest(label, period_args, common_args, env_overrides):
 
 def _train_sort_key(item):
     summary = item["train"]["summary"]
+    diagnostics = item["train"].get("diagnostics", {})
+    stage_counts = diagnostics.get("stage_counts", {})
     return (
         summary["roi"],
         summary["realized_pnl"],
         summary["total_trades"],
+        summary.get("candidate_count", 0),
+        stage_counts.get("after_lcb_edge", 0),
+        stage_counts.get("after_robustness", 0),
         -summary["max_drawdown"],
     )
 
@@ -114,13 +119,23 @@ def parse_args():
     parser.add_argument("--history-fidelity", type=int, default=60)
     parser.add_argument("--use-liquidity-filter", action="store_true")
     parser.add_argument("--top-n", type=int, default=3)
-    parser.add_argument("--min-train-trades", type=int, default=1)
+    parser.add_argument("--min-train-trades", type=int, default=0)
     parser.add_argument("--confidence-grid", default="0.85,0.90")
     parser.add_argument("--gross-edge-grid", default="0.015,0.02")
     parser.add_argument("--edge-threshold-grid", default="0.015,0.02")
     parser.add_argument("--watch-threshold-grid", default="0.01")
     parser.add_argument("--adjustment-scale-grid", default="0.04,0.06")
     parser.add_argument("--signals-per-event-grid", default="1")
+    parser.add_argument("--meta-confidence-grid", default="0.60,0.63")
+    parser.add_argument("--graph-consistency-grid", default="0.50,0.52")
+    parser.add_argument("--robustness-grid", default="0.58,0.60")
+    parser.add_argument("--lcb-edge-grid", default="0.0")
+    parser.add_argument("--watch-lcb-floor-grid", default="-0.020,-0.015")
+    parser.add_argument("--uncertainty-base-grid", default="0.006,0.010")
+    parser.add_argument("--uncertainty-confidence-grid", default="0.030,0.050")
+    parser.add_argument("--uncertainty-external-grid", default="0.010,0.020")
+    parser.add_argument("--uncertainty-anomaly-grid", default="0.015,0.020")
+    parser.add_argument("--max-combos", type=int, default=24)
     return parser.parse_args()
 
 
@@ -132,6 +147,15 @@ def main():
     watch_threshold_grid = _parse_float_grid(args.watch_threshold_grid)
     adjustment_scale_grid = _parse_float_grid(args.adjustment_scale_grid)
     signals_per_event_grid = _parse_int_grid(args.signals_per_event_grid)
+    meta_confidence_grid = _parse_float_grid(args.meta_confidence_grid)
+    graph_consistency_grid = _parse_float_grid(args.graph_consistency_grid)
+    robustness_grid = _parse_float_grid(args.robustness_grid)
+    lcb_edge_grid = _parse_float_grid(args.lcb_edge_grid)
+    watch_lcb_floor_grid = _parse_float_grid(args.watch_lcb_floor_grid)
+    uncertainty_base_grid = _parse_float_grid(args.uncertainty_base_grid)
+    uncertainty_confidence_grid = _parse_float_grid(args.uncertainty_confidence_grid)
+    uncertainty_external_grid = _parse_float_grid(args.uncertainty_external_grid)
+    uncertainty_anomaly_grid = _parse_float_grid(args.uncertainty_anomaly_grid)
 
     combos = list(
         itertools.product(
@@ -141,8 +165,19 @@ def main():
             watch_threshold_grid,
             adjustment_scale_grid,
             signals_per_event_grid,
+            meta_confidence_grid,
+            graph_consistency_grid,
+            robustness_grid,
+            lcb_edge_grid,
+            watch_lcb_floor_grid,
+            uncertainty_base_grid,
+            uncertainty_confidence_grid,
+            uncertainty_external_grid,
+            uncertainty_anomaly_grid,
         )
     )
+    if args.max_combos and len(combos) > args.max_combos:
+        combos = combos[: args.max_combos]
 
     train_period = {"start_date": args.train_start, "end_date": args.train_end}
     test_period = {"start_date": args.test_start, "end_date": args.test_end}
@@ -157,6 +192,15 @@ def main():
             watch_threshold,
             adjustment_scale,
             max_signals_per_event,
+            min_meta_confidence,
+            min_graph_consistency,
+            min_robustness_score,
+            min_lcb_edge,
+            watch_lcb_floor,
+            uncertainty_base,
+            uncertainty_confidence_weight,
+            uncertainty_external_weight,
+            uncertainty_anomaly_weight,
         ) = combo
         env_overrides = {
             "MIN_CONFIDENCE": min_confidence,
@@ -165,11 +209,24 @@ def main():
             "WATCH_THRESHOLD": watch_threshold,
             "MODEL_ADJUSTMENT_SCALE": adjustment_scale,
             "MAX_SIGNALS_PER_EVENT": max_signals_per_event,
+            "MIN_META_CONFIDENCE": min_meta_confidence,
+            "MIN_GRAPH_CONSISTENCY": min_graph_consistency,
+            "MIN_ROBUSTNESS_SCORE": min_robustness_score,
+            "MIN_LCB_EDGE": min_lcb_edge,
+            "WATCH_LCB_FLOOR": watch_lcb_floor,
+            "UNCERTAINTY_BASE": uncertainty_base,
+            "UNCERTAINTY_CONFIDENCE_WEIGHT": uncertainty_confidence_weight,
+            "UNCERTAINTY_EXTERNAL_CONF_WEIGHT": uncertainty_external_weight,
+            "UNCERTAINTY_ANOMALY_WEIGHT": uncertainty_anomaly_weight,
         }
         label = (
             f"train_{idx:02d}_"
             f"c{min_confidence}_g{min_gross_edge}_e{edge_threshold}_"
-            f"w{watch_threshold}_a{adjustment_scale}_s{max_signals_per_event}"
+            f"w{watch_threshold}_a{adjustment_scale}_s{max_signals_per_event}_"
+            f"mc{min_meta_confidence}_gc{min_graph_consistency}_rb{min_robustness_score}_"
+            f"lc{min_lcb_edge}_wl{watch_lcb_floor}_ub{uncertainty_base}_"
+            f"uc{uncertainty_confidence_weight}_ue{uncertainty_external_weight}_"
+            f"ua{uncertainty_anomaly_weight}"
         ).replace(".", "_")
         print(f"[train {idx}/{len(combos)}] {env_overrides}")
         payload = _run_backtest(label, train_period, args, env_overrides)
@@ -209,6 +266,15 @@ def main():
             "WATCH_THRESHOLD": watch_threshold_grid,
             "MODEL_ADJUSTMENT_SCALE": adjustment_scale_grid,
             "MAX_SIGNALS_PER_EVENT": signals_per_event_grid,
+            "MIN_META_CONFIDENCE": meta_confidence_grid,
+            "MIN_GRAPH_CONSISTENCY": graph_consistency_grid,
+            "MIN_ROBUSTNESS_SCORE": robustness_grid,
+            "MIN_LCB_EDGE": lcb_edge_grid,
+            "WATCH_LCB_FLOOR": watch_lcb_floor_grid,
+            "UNCERTAINTY_BASE": uncertainty_base_grid,
+            "UNCERTAINTY_CONFIDENCE_WEIGHT": uncertainty_confidence_grid,
+            "UNCERTAINTY_EXTERNAL_CONF_WEIGHT": uncertainty_external_grid,
+            "UNCERTAINTY_ANOMALY_WEIGHT": uncertainty_anomaly_grid,
         },
         "common_args": {
             "start_offset": args.start_offset,
@@ -223,6 +289,7 @@ def main():
             "use_liquidity_filter": args.use_liquidity_filter,
             "top_n": args.top_n,
             "min_train_trades": args.min_train_trades,
+            "max_combos": args.max_combos,
         },
         "train_candidates_evaluated": len(train_runs),
         "shortlisted": evaluated,
