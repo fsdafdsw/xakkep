@@ -74,6 +74,8 @@ def _specificity_score(question_text):
 
 def _resolution_quality(market):
     score = 0.42
+    parsed = market.get("resolution_metadata") or {}
+    relation_metrics = market.get("relation_metrics") or {}
     if market.get("resolution_source"):
         score += 0.25
     if market.get("event_description") or market.get("market_description"):
@@ -82,12 +84,19 @@ def _resolution_quality(market):
         score += 0.08
     if market.get("selected_outcome"):
         score += 0.05
+    if parsed.get("confidence"):
+        score += min(0.12, float(parsed["confidence"]) * 0.12)
+    if parsed.get("subject_entity_key"):
+        score += 0.04
+    if relation_metrics.get("relation_degree", 0) > 0:
+        score += min(0.08, relation_metrics.get("relation_degree", 0) * 0.01)
     return _clamp(score)
 
 
 def _competition_risk(market, question_text):
     event_market_count = max(1, as_int(market.get("event_market_count"), default=1))
     outcome_count = max(1, as_int(market.get("outcome_count"), default=2))
+    relation_metrics = market.get("relation_metrics") or {}
 
     risk = 0.0
     if event_market_count > 1:
@@ -96,6 +105,8 @@ def _competition_risk(market, question_text):
         risk += min(0.20, (outcome_count - 2) * 0.07)
     if contains_any(question_text, _WINNER_MARKET_KEYWORDS):
         risk = max(risk, 0.32 + min(0.32, max(0, event_market_count - 2) * 0.03))
+    if relation_metrics.get("exclusive_degree", 0) > 0:
+        risk += min(0.10, relation_metrics.get("exclusive_degree", 0) * 0.01)
 
     return _clamp(risk)
 
@@ -159,6 +170,8 @@ def compute_external_signal(market):
     price_prior = _favorite_longshot_prior(market, question_text)
     category_risk = _category_risk(market, question_text)
     domain = compute_domain_predictor(market)
+    relation_metrics = market.get("relation_metrics") or {}
+    parsed = market.get("resolution_metadata") or {}
 
     signal = 0.5
     signal += (specificity - 0.5) * 0.12
@@ -178,6 +191,8 @@ def compute_external_signal(market):
     confidence -= category_risk * 0.10
     confidence += profile["confidence_bias"]
     confidence += (domain["confidence"] - 0.5) * DOMAIN_CONFIDENCE_WEIGHT
+    confidence += min(0.05, relation_metrics.get("relation_confidence", 0.0) * 0.05)
+    confidence += min(0.04, float(parsed.get("confidence") or 0.0) * 0.04)
 
     return {
         "signal": _clamp(signal),
@@ -199,6 +214,8 @@ def compute_external_signal(market):
             "signal_bias": profile["signal_bias"],
             "confidence_bias": profile["confidence_bias"],
             "structure_flags": profile["structure_flags"],
+            "resolution_metadata": parsed,
+            "relation_metrics": relation_metrics,
             "domain": {
                 "name": domain["name"],
                 "signal": domain["signal"],

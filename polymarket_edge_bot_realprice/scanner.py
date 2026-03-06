@@ -11,7 +11,10 @@ from config import (
     REQUEST_RETRIES,
     REQUEST_TIMEOUT_SECONDS,
 )
+from entity_normalization import extract_market_entities
 from market_profile import enrich_market_profile
+from relations import annotate_market_relations
+from resolution_parser import parse_resolution_semantics
 
 
 def _safe_float(value):
@@ -229,6 +232,12 @@ def _normalize_market(raw):
         "token_yes": selected_token,
     }
     enrich_market_profile(market)
+    market["resolution_metadata"] = parse_resolution_semantics(market)
+    market["entity_metadata"] = extract_market_entities(market)
+    market["primary_entity_key"] = (
+        market["resolution_metadata"].get("subject_entity_key")
+        or next(iter(market["entity_metadata"].get("entity_keys") or []), None)
+    )
     return market
 
 
@@ -262,4 +271,6 @@ def fetch_markets(limit=5000):
 
         offset += page_size
 
-    return markets[:limit]
+    selected = markets[:limit]
+    annotate_market_relations(selected)
+    return selected

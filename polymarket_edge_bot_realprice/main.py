@@ -177,6 +177,8 @@ def _build_candidate(item, score_policy):
     graph = item.get("graph") or {}
     robust = item.get("robust") or {}
     domain_components = _candidate_domain_components(item["metrics"])
+    relation_metrics = item["market"].get("relation_metrics") or {}
+    resolution_metadata = item["market"].get("resolution_metadata") or {}
 
     fair_lcb = item.get("fair_lcb")
     gross_edge_lcb = item.get("gross_edge_lcb")
@@ -195,6 +197,7 @@ def _build_candidate(item, score_policy):
         "event_key": item["event_key"],
         "question": item["market"].get("question"),
         "event_title": item["market"].get("event_title"),
+        "primary_entity_key": item["market"].get("primary_entity_key"),
         "market_type": item["metrics"].get("market_type") or item["market"].get("market_type"),
         "category_group": item["metrics"].get("category_group") or item["market"].get("category_group"),
         "outcomes": outcomes,
@@ -217,6 +220,12 @@ def _build_candidate(item, score_policy):
         "domain_confidence": item["metrics"].get("domain_confidence"),
         "odds_implied_probability": domain_components.get("implied_probability"),
         "odds_bookmaker_count": domain_components.get("bookmaker_count"),
+        "relation_degree": relation_metrics.get("relation_degree", 0),
+        "exclusive_degree": relation_metrics.get("exclusive_degree", 0),
+        "monotonic_degree": relation_metrics.get("monotonic_degree", 0),
+        "relation_confidence": relation_metrics.get("relation_confidence", 0.0),
+        "semantic_family": resolution_metadata.get("family"),
+        "semantic_confidence": resolution_metadata.get("confidence", 0.0),
         "stake_usd": max(item.get("stake_usd", 0.0), 0.0),
         "model": {
             "quality": item["metrics"].get("quality"),
@@ -234,6 +243,8 @@ def _build_candidate(item, score_policy):
             "external_components": item["metrics"].get("external_components"),
             "graph": graph,
             "robust": robust,
+            "relation_metrics": relation_metrics,
+            "resolution_metadata": resolution_metadata,
         },
         "policy": {
             "min_confidence": score_policy["min_confidence"],
@@ -283,7 +294,12 @@ def _format_signal(rank, candidate):
     lines.append(
         f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
     )
-    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{odds_bits}")
+    relation_bits = ""
+    if candidate.get("relation_degree"):
+        relation_bits = f" | relations={candidate['relation_degree']}"
+    lines.append(
+        f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{odds_bits}{relation_bits}"
+    )
     return "\n".join(lines)
 
 
@@ -330,7 +346,10 @@ def _format_rejected(rank, candidate):
     lines.append(
         f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
     )
-    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}")
+    relation_bits = ""
+    if candidate.get("relation_degree"):
+        relation_bits = f" | relations={candidate['relation_degree']}"
+    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{relation_bits}")
     return "\n".join(lines)
 
 

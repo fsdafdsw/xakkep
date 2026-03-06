@@ -24,6 +24,7 @@ from config import (
     TAKER_FEE_BPS,
 )
 from diagnostics import distribution_stats
+from entity_normalization import extract_market_entities
 from event_graph import compute_event_graph_metrics
 from filter_policy import (
     filter_reason,
@@ -32,6 +33,8 @@ from filter_policy import (
 )
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
+from relations import annotate_market_relations
+from resolution_parser import parse_resolution_semantics
 from robust_signal import compute_robust_signal
 from strategy import evaluate_market
 
@@ -228,6 +231,7 @@ def _dedupe_per_event(candidates):
         grouped.setdefault(_candidate_event_key(c), []).append(c)
 
     selected = []
+    prepared_snapshots = []
     for group in grouped.values():
         group = sorted(group, key=lambda x: x.net_edge, reverse=True)
         selected.extend(group[:MAX_SIGNALS_PER_EVENT])
@@ -329,6 +333,12 @@ def _build_rejection_payload(candidate, reason):
         "domain_name": candidate.model.get("domain_name"),
         "domain_signal": candidate.model.get("domain_signal"),
         "domain_confidence": candidate.model.get("domain_confidence"),
+        "relation_metrics": (
+            (candidate.model.get("external_components") or {}).get("relation_metrics") or {}
+        ),
+        "resolution_metadata": (
+            (candidate.model.get("external_components") or {}).get("resolution_metadata") or {}
+        ),
         "reject_reason": reason,
         "policy": dict(candidate.policy),
         "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
@@ -533,6 +543,8 @@ def build_candidates(
             volume24h_proxy = (volume_1wk / 7.0) if volume_1wk > 0 else (volume_total / 30.0)
 
             snapshot = {
+                "id": m.get("id") or token_id,
+                "event_id": str(event.get("id") or ""),
                 "question": m.get("question") or "",
                 "slug": m.get("slug") or "",
                 "event_slug": event_slug,
@@ -542,7 +554,9 @@ def build_candidates(
                 "resolution_source": event.get("resolutionSource") or m.get("resolutionSource") or "",
                 "event_market_count": len(markets),
                 "outcome_count": len(outcomes),
+                "outcomes": outcomes,
                 "selected_outcome": outcomes[outcome_idx] if outcome_idx < len(outcomes) else "",
+                "selected_outcome_index": outcome_idx,
                 "token_yes": token_id,
                 "volume": volume_total,
                 "volume24h": volume24h_proxy,
@@ -563,6 +577,12 @@ def build_candidates(
                 snapshot["best_ask"] = min(1.0, entry_price + spread / 2.0)
 
             profile = enrich_market_profile(snapshot)
+            snapshot["resolution_metadata"] = parse_resolution_semantics(snapshot)
+            snapshot["entity_metadata"] = extract_market_entities(snapshot)
+            snapshot["primary_entity_key"] = (
+                snapshot["resolution_metadata"].get("subject_entity_key")
+                or next(iter(snapshot["entity_metadata"].get("entity_keys") or []), None)
+            )
             _bump_stage(
                 diagnostics,
                 "snapshot_ready",
@@ -583,56 +603,73 @@ def build_candidates(
                 market_type=profile["market_type"],
                 category_group=profile["category_group"],
             )
-
-            metrics = evaluate_market(snapshot)
-            fair = estimated_probability(
-                snapshot,
-                metrics,
-                adjustment_scale=MODEL_ADJUSTMENT_SCALE,
+            prepared_snapshots.append(
+                {
+                    "snapshot": snapshot,
+                    "event_id": str(event.get("id") or ""),
+                    "event_slug": event_slug,
+                    "token_id": token_id,
+                    "entry_ts": entry_ts,
+                    "settle_ts": settle_ts,
+                    "entry_price": entry_price,
+                    "resolved_outcome": resolved_outcome,
+                    "spread": spread,
+                }
             )
-            if fair is None:
-                continue
-            _bump_stage(
-                diagnostics,
-                "scored",
-                market_type=metrics.get("market_type"),
-                category_group=metrics.get("category_group"),
-            )
-
-            selected.append(
-                Candidate(
-                    event_id=str(event.get("id") or ""),
-                    question=snapshot["question"],
-                    event_slug=event_slug,
-                    market_slug=snapshot["slug"],
-                    market_type=metrics.get("market_type", "unknown"),
-                    category_group=metrics.get("category_group", "other"),
-                    token_id=token_id,
-                    entry_ts=entry_ts,
-                    settle_ts=settle_ts,
-                    entry=entry_price,
-                    fair=fair,
-                    fair_lcb=0.0,
-                    gross_edge=0.0,
-                    net_edge=0.0,
-                    gross_edge_lcb=0.0,
-                    net_edge_lcb=0.0,
-                    confidence=metrics.get("confidence", 0.5),
-                    meta_confidence=0.0,
-                    graph_consistency=0.0,
-                    robustness_score=0.0,
-                    resolved_outcome=resolved_outcome,
-                    spread=spread,
-                    policy={},
-                    model=dict(metrics),
-                )
-            )
-            if len(selected) >= max_markets:
+            if len(prepared_snapshots) >= max_markets:
                 break
         if stop_scan:
             break
-        if len(selected) >= max_markets:
+        if len(prepared_snapshots) >= max_markets:
             break
+
+    annotate_market_relations([item["snapshot"] for item in prepared_snapshots])
+
+    for item in prepared_snapshots:
+        snapshot = item["snapshot"]
+        metrics = evaluate_market(snapshot)
+        fair = estimated_probability(
+            snapshot,
+            metrics,
+            adjustment_scale=MODEL_ADJUSTMENT_SCALE,
+        )
+        if fair is None:
+            continue
+        _bump_stage(
+            diagnostics,
+            "scored",
+            market_type=metrics.get("market_type"),
+            category_group=metrics.get("category_group"),
+        )
+
+        selected.append(
+            Candidate(
+                event_id=item["event_id"],
+                question=snapshot["question"],
+                event_slug=item["event_slug"],
+                market_slug=snapshot["slug"],
+                market_type=metrics.get("market_type", "unknown"),
+                category_group=metrics.get("category_group", "other"),
+                token_id=item["token_id"],
+                entry_ts=item["entry_ts"],
+                settle_ts=item["settle_ts"],
+                entry=item["entry_price"],
+                fair=fair,
+                fair_lcb=0.0,
+                gross_edge=0.0,
+                net_edge=0.0,
+                gross_edge_lcb=0.0,
+                net_edge_lcb=0.0,
+                confidence=metrics.get("confidence", 0.5),
+                meta_confidence=0.0,
+                graph_consistency=0.0,
+                robustness_score=0.0,
+                resolved_outcome=item["resolved_outcome"],
+                spread=item["spread"],
+                policy={},
+                model=dict(metrics),
+            )
+        )
 
     for candidate in selected:
         _recompute_candidate_edges(candidate)
@@ -763,6 +800,24 @@ def build_candidates(
             "domain_confidence": distribution_stats(
                 [candidate.model.get("domain_confidence", 0.5) for candidate in selected]
             ),
+            "relation_degree": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_metrics") or {}).get(
+                        "relation_degree",
+                        0,
+                    )
+                    for candidate in selected
+                ]
+            ),
+            "relation_confidence": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_metrics") or {}).get(
+                        "relation_confidence",
+                        0.0,
+                    )
+                    for candidate in selected
+                ]
+            ),
             "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in selected]),
             "robustness_score": distribution_stats([candidate.robustness_score for candidate in selected]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in selected]),
@@ -784,6 +839,24 @@ def build_candidates(
             "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in group]),
             "domain_confidence": distribution_stats(
                 [candidate.model.get("domain_confidence", 0.5) for candidate in group]
+            ),
+            "relation_degree": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_metrics") or {}).get(
+                        "relation_degree",
+                        0,
+                    )
+                    for candidate in group
+                ]
+            ),
+            "relation_confidence": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_metrics") or {}).get(
+                        "relation_confidence",
+                        0.0,
+                    )
+                    for candidate in group
+                ]
             ),
             "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in group]),
             "robustness_score": distribution_stats([candidate.robustness_score for candidate in group]),

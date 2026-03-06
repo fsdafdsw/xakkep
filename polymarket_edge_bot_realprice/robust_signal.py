@@ -53,8 +53,13 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     external_components = metrics.get("external_components") or {}
     domain = external_components.get("domain") or {}
     domain_components = domain.get("components") or {}
+    relation_metrics = external_components.get("relation_metrics") or {}
+    resolution_metadata = external_components.get("resolution_metadata") or {}
     resolution_quality = _safe_float(external_components.get("resolution_quality"), 0.5)
     specificity = _safe_float(external_components.get("specificity"), 0.5)
+    semantic_confidence = _safe_float(resolution_metadata.get("confidence"), 0.0)
+    relation_confidence = _safe_float(relation_metrics.get("relation_confidence"), 0.0)
+    relation_degree = _safe_float(relation_metrics.get("relation_degree"), 0.0)
     horizon_risk = _safe_float(external_components.get("horizon_risk"), 0.25)
     category_risk = _safe_float(external_components.get("category_risk"), 0.0)
     competition_risk = _safe_float(external_components.get("competition_risk"), 0.0)
@@ -82,6 +87,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     reliability += specificity * 0.08
     reliability += base_confidence * 0.08
     reliability += max(0.0, domain_line_confirmation) * 0.08
+    reliability += semantic_confidence * 0.08
+    reliability += relation_confidence * 0.08
+    reliability += min(0.06, relation_degree * 0.01)
     reliability += odds_match_quality * 0.10
     reliability += min(0.10, odds_bookmaker_count * 0.015)
     reliability += odds_feed_flag * 0.06
@@ -178,5 +186,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
             "odds_match_quality": odds_match_quality,
             "odds_bookmaker_count": odds_bookmaker_count,
             "odds_dispersion": odds_dispersion,
+            "semantic_confidence": semantic_confidence,
+            "relation_confidence": relation_confidence,
+            "relation_degree": relation_degree,
         },
     }
