@@ -1,6 +1,8 @@
 import math
 import re
 
+from market_profile import as_int, contains_any, enrich_market_profile, normalize_text
+
 
 _DATE_RE = re.compile(
     r"\b("
@@ -50,24 +52,6 @@ def _clamp(value, low=0.0, high=1.0):
     return max(low, min(high, value))
 
 
-def _normalize_text(*parts):
-    text = " ".join(str(part or "") for part in parts)
-    return " ".join(text.lower().split())
-
-
-def _contains_any(text, patterns):
-    return any(pattern in text for pattern in patterns)
-
-
-def _as_int(value, default=0):
-    try:
-        if value is None or value == "":
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _specificity_score(question_text):
     tokens = question_text.split()
     score = 0.40
@@ -100,15 +84,15 @@ def _resolution_quality(market):
 
 
 def _competition_risk(market, question_text):
-    event_market_count = max(1, _as_int(market.get("event_market_count"), default=1))
-    outcome_count = max(1, _as_int(market.get("outcome_count"), default=2))
+    event_market_count = max(1, as_int(market.get("event_market_count"), default=1))
+    outcome_count = max(1, as_int(market.get("outcome_count"), default=2))
 
     risk = 0.0
     if event_market_count > 1:
         risk += min(0.45, (event_market_count - 1) * 0.045)
     if outcome_count > 2:
         risk += min(0.20, (outcome_count - 2) * 0.07)
-    if _contains_any(question_text, _WINNER_MARKET_KEYWORDS):
+    if contains_any(question_text, _WINNER_MARKET_KEYWORDS):
         risk = max(risk, 0.32 + min(0.32, max(0, event_market_count - 2) * 0.03))
 
     return _clamp(risk)
@@ -135,33 +119,34 @@ def _favorite_longshot_prior(market, question_text):
     if price is None:
         return 0.5
 
-    event_market_count = max(1, _as_int(market.get("event_market_count"), default=1))
+    event_market_count = max(1, as_int(market.get("event_market_count"), default=1))
     score = 0.5 + (math.tanh((float(price) - 0.33) * 4.2) * 0.18)
 
     if price < 0.20:
         score -= min(0.12, (0.20 - price) * 0.60)
     if event_market_count >= 4 and price < 0.25:
         score -= 0.06
-    if _contains_any(question_text, _WINNER_MARKET_KEYWORDS) and price < 0.25:
+    if contains_any(question_text, _WINNER_MARKET_KEYWORDS) and price < 0.25:
         score -= 0.05
 
     return _clamp(score)
 
 
 def _category_risk(market, question_text):
-    category_text = _normalize_text(market.get("event_category"))
+    category_text = normalize_text(market.get("event_category"))
     risk = 0.0
 
-    if _contains_any(category_text, _NOISY_CATEGORY_KEYWORDS):
+    if contains_any(category_text, _NOISY_CATEGORY_KEYWORDS):
         risk = max(risk, 0.18)
-    if _contains_any(question_text, _NOISY_MARKET_KEYWORDS):
+    if contains_any(question_text, _NOISY_MARKET_KEYWORDS):
         risk = max(risk, 0.24)
 
     return _clamp(risk)
 
 
 def compute_external_signal(market):
-    question_text = _normalize_text(
+    profile = enrich_market_profile(market)
+    question_text = normalize_text(
         market.get("question"),
         market.get("event_title"),
     )
@@ -179,6 +164,7 @@ def compute_external_signal(market):
     signal -= competition_risk * 0.12
     signal -= horizon_risk * 0.10
     signal -= category_risk * 0.08
+    signal += profile["signal_bias"]
 
     confidence = 0.54
     confidence += (specificity - 0.5) * 0.25
@@ -186,10 +172,15 @@ def compute_external_signal(market):
     confidence -= competition_risk * 0.18
     confidence -= horizon_risk * 0.12
     confidence -= category_risk * 0.10
+    confidence += profile["confidence_bias"]
 
     return {
         "signal": _clamp(signal),
         "confidence": _clamp(confidence),
+        "market_type": profile["market_type"],
+        "category_group": profile["category_group"],
+        "adjustment_multiplier": profile["adjustment_multiplier"],
+        "factor_weights": profile["factor_weights"],
         "components": {
             "specificity": specificity,
             "resolution_quality": resolution_quality,
@@ -197,5 +188,8 @@ def compute_external_signal(market):
             "horizon_risk": horizon_risk,
             "price_prior": price_prior,
             "category_risk": category_risk,
+            "signal_bias": profile["signal_bias"],
+            "confidence_bias": profile["confidence_bias"],
+            "structure_flags": profile["structure_flags"],
         },
     }

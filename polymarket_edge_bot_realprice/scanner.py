@@ -11,6 +11,7 @@ from config import (
     REQUEST_RETRIES,
     REQUEST_TIMEOUT_SECONDS,
 )
+from market_profile import enrich_market_profile
 
 
 def _safe_float(value):
@@ -188,7 +189,7 @@ def _normalize_market(raw):
 
     ref_price = mid_from_book if mid_from_book is not None else selected_price
 
-    return {
+    market = {
         "id": raw.get("id"),
         "event_id": event_meta["event_id"],
         "question": raw.get("question"),
@@ -226,6 +227,8 @@ def _normalize_market(raw):
         "hours_to_close": _hours_to_close(raw.get("endDate")),
         "token_yes": selected_token,
     }
+    enrich_market_profile(market)
+    return market
 
 
 def fetch_markets(limit=5000):

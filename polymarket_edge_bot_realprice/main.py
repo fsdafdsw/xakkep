@@ -229,6 +229,8 @@ def run():
         candidate = {
             "event_key": item["event_key"],
             "question": item["market"].get("question"),
+            "market_type": item["metrics"].get("market_type"),
+            "category_group": item["metrics"].get("category_group"),
             "selected_outcome": item["market"].get("selected_outcome"),
             "selected_outcome_index": item["market"].get("selected_outcome_index"),
             "link": _market_link(item["market"]),
@@ -246,6 +248,8 @@ def run():
                 "news": item["metrics"].get("news"),
                 "external": item["metrics"].get("external"),
                 "external_confidence": item["metrics"].get("external_confidence"),
+                "adjustment_multiplier": item["metrics"].get("adjustment_multiplier"),
+                "factor_weights": item["metrics"].get("factor_weights"),
                 "external_components": item["metrics"].get("external_components"),
             },
         }

@@ -11,15 +11,24 @@ def estimated_probability(market, metrics, adjustment_scale=0.12):
     if implied is None:
         return None
 
+    factor_weights = metrics.get(
+        "factor_weights",
+        {
+            "momentum": 0.45,
+            "orderbook": 0.25,
+            "news": 0.10,
+            "anomaly": 0.20,
+        },
+    )
     signal = (
-        (metrics["momentum"] - 0.5) * 0.45
-        + (metrics["orderbook"] - 0.5) * 0.25
-        + (metrics["news"] - 0.5) * 0.10
-        - (metrics["anomaly"] - 0.5) * 0.20
+        (metrics["momentum"] - 0.5) * factor_weights.get("momentum", 0.45)
+        + (metrics["orderbook"] - 0.5) * factor_weights.get("orderbook", 0.25)
+        + (metrics["news"] - 0.5) * factor_weights.get("news", 0.10)
+        - (metrics["anomaly"] - 0.5) * factor_weights.get("anomaly", 0.20)
         + (metrics.get("external", 0.5) - 0.5) * EXTERNAL_SIGNAL_WEIGHT
     )
     # Keep adjustments intentionally small: market-implied probability stays anchor.
-    raw_adjustment = signal * adjustment_scale
+    raw_adjustment = signal * adjustment_scale * metrics.get("adjustment_multiplier", 1.0)
     confidence = metrics.get("confidence", 0.5)
     adjusted = implied + (raw_adjustment * confidence)
 

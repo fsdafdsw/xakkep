@@ -5,6 +5,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -33,6 +34,8 @@ from config import (
     REQUEST_TIMEOUT_SECONDS,
     TAKER_FEE_BPS,
 )
+from diagnostics import distribution_stats
+from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from strategy import evaluate_market
 
@@ -285,6 +288,8 @@ class Candidate:
     question: str
     event_slug: str
     market_slug: str
+    market_type: str
+    category_group: str
     token_id: str
     entry_ts: int
     settle_ts: int
@@ -305,6 +310,69 @@ class OpenPosition:
     cost_basis: float
     resolved_outcome: int
     entry_price: float
+
+
+def _bump_stage(diag, stage_name, market_type=None, category_group=None):
+    diag["stage_counts"][stage_name] += 1
+    if market_type:
+        diag["market_type_stage_counts"][stage_name][market_type] += 1
+    if category_group:
+        diag["category_stage_counts"][stage_name][category_group] += 1
+
+
+def _finalize_stage_map(stage_map):
+    return {
+        stage_name: dict(sorted(counts.items()))
+        for stage_name, counts in stage_map.items()
+    }
+
+
+def _build_rejection_payload(candidate, reason):
+    return {
+        "question": candidate.question,
+        "event_slug": candidate.event_slug,
+        "market_slug": candidate.market_slug,
+        "market_type": candidate.market_type,
+        "category_group": candidate.category_group,
+        "entry_utc": _to_utc_str(candidate.entry_ts),
+        "entry": candidate.entry,
+        "fair": candidate.fair,
+        "gross_edge": candidate.gross_edge,
+        "net_edge": candidate.net_edge,
+        "confidence": candidate.confidence,
+        "reject_reason": reason,
+        "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
+    }
+
+
+def _top_edge_rejections(rejections, limit=8):
+    ranked = sorted(
+        rejections,
+        key=lambda item: (
+            item["net_edge"] if item["net_edge"] is not None else item["gross_edge"],
+            item["gross_edge"],
+        ),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
+_STAGE_NAMES = (
+    "markets_seen",
+    "markets_in_time_window",
+    "binary_markets",
+    "resolved_binary_markets",
+    "history_requests",
+    "history_available",
+    "snapshot_ready",
+    "passed_filters",
+    "scored",
+    "post_neutralization",
+    "after_confidence",
+    "after_gross_edge",
+    "after_net_edge",
+    "final_candidates",
+)
 
 
 def build_candidates(
@@ -336,8 +404,16 @@ def build_candidates(
         "missing_history": 0,
         "no_entry_price": 0,
     }
+    diagnostics = {
+        "stage_counts": defaultdict(int, {name: 0 for name in _STAGE_NAMES}),
+        "market_type_stage_counts": defaultdict(lambda: defaultdict(int)),
+        "category_stage_counts": defaultdict(lambda: defaultdict(int)),
+        "rejects_by_market_type": defaultdict(lambda: defaultdict(int)),
+        "rejects_by_category": defaultdict(lambda: defaultdict(int)),
+    }
 
     selected = []
+    edge_rejections = []
     history_requests = 0
     stop_scan = False
     for event in events:
@@ -347,11 +423,13 @@ def build_candidates(
             continue
 
         for m in markets:
+            diagnostics["stage_counts"]["markets_seen"] += 1
             settle_ts = _to_unix(m.get("endDate") or event.get("endDate"))
             if settle_ts is None:
                 continue
             if settle_ts < start_ts or settle_ts > end_ts:
                 continue
+            diagnostics["stage_counts"]["markets_in_time_window"] += 1
 
             outcomes = _parse_json_list(m.get("outcomes"))
             outcome_prices = _parse_json_list(m.get("outcomePrices"))
@@ -359,6 +437,7 @@ def build_candidates(
             if len(outcomes) != 2 or len(outcome_prices) != 2 or len(token_ids) != 2:
                 reasons["not_binary"] += 1
                 continue
+            diagnostics["stage_counts"]["binary_markets"] += 1
 
             outcome_idx = _select_outcome_index(outcomes)
             if outcome_idx >= len(token_ids) or outcome_idx >= len(outcome_prices):
@@ -370,6 +449,7 @@ def build_candidates(
             if resolved_outcome is None:
                 reasons["not_resolved"] += 1
                 continue
+            diagnostics["stage_counts"]["resolved_binary_markets"] += 1
 
             token_id = str(token_ids[outcome_idx])
             entry_ts = settle_ts - (entry_hours_before_close * 3600)
@@ -382,10 +462,12 @@ def build_candidates(
 
             hist_start_ts = entry_ts - (history_window_days * 24 * 3600)
             history_requests += 1
+            diagnostics["stage_counts"]["history_requests"] = history_requests
             history = fetch_price_history(token_id, hist_start_ts, entry_ts, fidelity=fidelity)
             if not history:
                 reasons["missing_history"] += 1
                 continue
+            diagnostics["stage_counts"]["history_available"] += 1
 
             entry_price = price_at_or_before(history, entry_ts)
             if entry_price is None:
@@ -444,8 +526,27 @@ def build_candidates(
                 snapshot["best_bid"] = max(0.0, entry_price - spread / 2.0)
                 snapshot["best_ask"] = min(1.0, entry_price + spread / 2.0)
 
+            profile = enrich_market_profile(snapshot)
+            _bump_stage(
+                diagnostics,
+                "snapshot_ready",
+                market_type=profile["market_type"],
+                category_group=profile["category_group"],
+            )
+            reject_snapshot = dict(rejects)
             if not _passes_backtest_filters(snapshot, rejects, use_liquidity_filter):
+                for reason_name, count in rejects.items():
+                    if count != reject_snapshot.get(reason_name, 0):
+                        diagnostics["rejects_by_market_type"][reason_name][profile["market_type"]] += 1
+                        diagnostics["rejects_by_category"][reason_name][profile["category_group"]] += 1
+                        break
                 continue
+            _bump_stage(
+                diagnostics,
+                "passed_filters",
+                market_type=profile["market_type"],
+                category_group=profile["category_group"],
+            )
 
             metrics = evaluate_market(snapshot)
             fair = estimated_probability(
@@ -455,6 +556,12 @@ def build_candidates(
             )
             if fair is None:
                 continue
+            _bump_stage(
+                diagnostics,
+                "scored",
+                market_type=metrics.get("market_type"),
+                category_group=metrics.get("category_group"),
+            )
 
             selected.append(
                 Candidate(
@@ -462,6 +569,8 @@ def build_candidates(
                     question=snapshot["question"],
                     event_slug=event_slug,
                     market_slug=snapshot["slug"],
+                    market_type=metrics.get("market_type", "unknown"),
+                    category_group=metrics.get("category_group", "other"),
                     token_id=token_id,
                     entry_ts=entry_ts,
                     settle_ts=settle_ts,
@@ -486,21 +595,83 @@ def build_candidates(
 
     _neutralize_candidates_by_event(selected)
 
+    for candidate in selected:
+        _bump_stage(
+            diagnostics,
+            "post_neutralization",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
     filtered = []
     for candidate in selected:
         if candidate.confidence < MIN_CONFIDENCE:
             rejects["low_confidence"] += 1
             continue
+        _bump_stage(
+            diagnostics,
+            "after_confidence",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
         if candidate.gross_edge < MIN_GROSS_EDGE:
             rejects["low_gross_edge"] += 1
+            edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
             continue
+        _bump_stage(
+            diagnostics,
+            "after_gross_edge",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
         if candidate.net_edge is None or candidate.net_edge <= EDGE_THRESHOLD:
+            edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
             continue
+        _bump_stage(
+            diagnostics,
+            "after_net_edge",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
         filtered.append(candidate)
 
     filtered = _dedupe_per_event(filtered)
     filtered = sorted(filtered, key=lambda x: x.net_edge, reverse=True)[:max_markets]
-    return filtered, rejects, reasons
+    for candidate in filtered:
+        _bump_stage(
+            diagnostics,
+            "final_candidates",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
+    diagnostics_payload = {
+        "stage_counts": dict(sorted(diagnostics["stage_counts"].items())),
+        "market_type_stage_counts": _finalize_stage_map(diagnostics["market_type_stage_counts"]),
+        "category_stage_counts": _finalize_stage_map(diagnostics["category_stage_counts"]),
+        "rejects_by_market_type": _finalize_stage_map(diagnostics["rejects_by_market_type"]),
+        "rejects_by_category": _finalize_stage_map(diagnostics["rejects_by_category"]),
+        "edge_distributions": {
+            "confidence": distribution_stats([candidate.confidence for candidate in selected]),
+            "gross_edge": distribution_stats([candidate.gross_edge for candidate in selected]),
+            "net_edge": distribution_stats([candidate.net_edge for candidate in selected]),
+        },
+        "market_type_edge_summary": {},
+        "top_rejected_by_edge": _top_edge_rejections(edge_rejections),
+    }
+
+    grouped_by_type = defaultdict(list)
+    for candidate in selected:
+        grouped_by_type[candidate.market_type].append(candidate)
+    for market_type, group in grouped_by_type.items():
+        diagnostics_payload["market_type_edge_summary"][market_type] = {
+            "count": len(group),
+            "confidence": distribution_stats([candidate.confidence for candidate in group]),
+            "gross_edge": distribution_stats([candidate.gross_edge for candidate in group]),
+            "net_edge": distribution_stats([candidate.net_edge for candidate in group]),
+        }
+
+    return filtered, rejects, reasons, diagnostics_payload
 
 
 def run_simulation(candidates, initial_bankroll: float):
@@ -643,7 +814,7 @@ def main():
     print(f"Fetched events: {len(events)}")
 
     print("Building candidates and replaying model signals...")
-    candidates, rejects, reasons = build_candidates(
+    candidates, rejects, reasons, diagnostics = build_candidates(
         events=events,
         start_ts=start_ts,
         end_ts=end_ts,
@@ -675,6 +846,32 @@ def main():
     print(rejects)
     print("Drop reasons before scoring:")
     print(reasons)
+    print("Pipeline stage counts:")
+    print(diagnostics["stage_counts"])
+    rejects_by_type = diagnostics.get("rejects_by_market_type", {})
+    if rejects_by_type:
+        print("Reject reasons by market type:")
+        print(rejects_by_type)
+
+    market_type_final = diagnostics["market_type_stage_counts"].get("final_candidates", {})
+    if market_type_final:
+        print("Final candidates by market type:")
+        print(market_type_final)
+
+    print("Edge distributions after neutralization:")
+    print(diagnostics["edge_distributions"])
+
+    top_rejected = diagnostics.get("top_rejected_by_edge", [])
+    if top_rejected:
+        print("Top rejected by edge:")
+        for item in top_rejected[:5]:
+            print(
+                f"- {item['reject_reason']} | {item['market_type']} | "
+                f"net_edge={item['net_edge']:.3f} gross_edge={item['gross_edge']:.3f} "
+                f"conf={item['confidence']:.2f}\n"
+                f"  {item['question']}\n"
+                f"  {item['link']}"
+            )
 
     top = sorted(summary["executed"], key=lambda x: x[0].net_edge, reverse=True)[:5]
     top_payload = []
@@ -694,6 +891,8 @@ def main():
                     "gross_edge": c.gross_edge,
                     "net_edge": c.net_edge,
                     "confidence": c.confidence,
+                    "market_type": c.market_type,
+                    "category_group": c.category_group,
                     "outlay_usd": outlay,
                     "resolved_outcome": c.resolved_outcome,
                     "link": event_link,
@@ -746,6 +945,7 @@ def main():
             },
             "rejects": rejects,
             "drop_reasons": reasons,
+            "diagnostics": diagnostics,
             "top_executed": top_payload,
         }
         with open(args.json_output, "w", encoding="utf-8") as fh:

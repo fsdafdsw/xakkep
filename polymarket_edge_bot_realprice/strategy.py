@@ -35,6 +35,10 @@ def evaluate_market(m):
         "news": news,
         "external": external["signal"],
         "external_confidence": external["confidence"],
+        "market_type": external["market_type"],
+        "category_group": external["category_group"],
+        "adjustment_multiplier": external["adjustment_multiplier"],
+        "factor_weights": external["factor_weights"],
         "external_components": external["components"],
         "confidence": max(0.0, min(confidence, 1.0)),
     }
