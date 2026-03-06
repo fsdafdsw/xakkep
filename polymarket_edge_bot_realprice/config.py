@@ -19,6 +19,7 @@ MIN_PRICE = float(os.getenv("MIN_PRICE", "0.03"))
 MAX_PRICE = float(os.getenv("MAX_PRICE", "0.97"))
 MIN_HOURS_TO_CLOSE = float(os.getenv("MIN_HOURS_TO_CLOSE", "2"))
 REQUIRE_ORDERBOOK = os.getenv("REQUIRE_ORDERBOOK", "false").lower() == "true"
+EXCLUDE_INTRADAY_CRYPTO = os.getenv("EXCLUDE_INTRADAY_CRYPTO", "true").lower() == "true"
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.90"))
 MIN_GROSS_EDGE = float(os.getenv("MIN_GROSS_EDGE", "0.02"))
 EXCLUDED_QUESTION_PATTERNS = [

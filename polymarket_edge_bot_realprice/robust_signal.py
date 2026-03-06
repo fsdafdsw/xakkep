@@ -178,6 +178,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
         "components": {
             "reliability": reliability,
             "skepticism": skepticism,
+            "uncertainty": uncertainty,
             "raw_adjustment": raw_adjustment,
             "supported_adjustment": supported_adjustment,
             "overreach": overreach,

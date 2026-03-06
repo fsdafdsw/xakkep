@@ -313,6 +313,8 @@ def _finalize_stage_map(stage_map):
 
 
 def _build_rejection_payload(candidate, reason):
+    robust = candidate.model.get("robust") or {}
+    robust_components = robust.get("components") or {}
     return {
         "question": candidate.question,
         "event_slug": candidate.event_slug,
@@ -343,6 +345,7 @@ def _build_rejection_payload(candidate, reason):
         "resolution_metadata": (
             (candidate.model.get("external_components") or {}).get("resolution_metadata") or {}
         ),
+        "robust_components": robust_components,
         "reject_reason": reason,
         "policy": dict(candidate.policy),
         "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
@@ -360,6 +363,101 @@ def _top_edge_rejections(rejections, limit=8):
         reverse=True,
     )
     return ranked[:limit]
+
+
+def _mean(values):
+    return (sum(values) / len(values)) if values else 0.0
+
+
+def _summarize_low_lcb_edge(rejections):
+    rejected = [item for item in rejections if item.get("reject_reason") == "low_lcb_edge"]
+    if not rejected:
+        return {}
+
+    by_market_type = defaultdict(int)
+    by_category = defaultdict(int)
+    by_domain = defaultdict(int)
+    by_semantic_family = defaultdict(int)
+    question_samples = []
+
+    uncertainty_values = []
+    correlation_penalties = []
+    graph_penalties = []
+    regime_penalties = []
+    total_penalties = []
+    raw_adjustments = []
+    relation_inconsistency = []
+    relation_constraint_violation = []
+    relation_support_confidence = []
+    cost_gaps = []
+    lcb_shortfalls = []
+    net_edges = []
+    gross_edges = []
+    confidences = []
+    meta_confidences = []
+
+    for item in rejected:
+        by_market_type[item.get("market_type") or "unknown"] += 1
+        by_category[item.get("category_group") or "other"] += 1
+        by_domain[item.get("domain_name") or "unknown"] += 1
+        semantic_family = (item.get("resolution_metadata") or {}).get("family") or "unknown"
+        by_semantic_family[semantic_family] += 1
+
+        robust = item.get("robust_components") or {}
+        rel = item.get("relation_residual") or {}
+        uncertainty_values.append(
+            float(robust.get("uncertainty") or robust.get("components", {}).get("uncertainty") or 0.0)
+        )
+        correlation_penalties.append(float(robust.get("correlation_penalty") or 0.0))
+        graph_penalties.append(float(robust.get("graph_penalty") or 0.0))
+        regime_penalties.append(float(robust.get("regime_penalty") or 0.0))
+        total_penalties.append(float(robust.get("total_penalty") or 0.0))
+        raw_adjustments.append(float(robust.get("raw_adjustment") or 0.0))
+        relation_inconsistency.append(float(rel.get("inconsistency_score") or 0.0))
+        relation_constraint_violation.append(float(rel.get("constraint_violation") or 0.0))
+        relation_support_confidence.append(float(rel.get("support_confidence") or 0.0))
+        net_edges.append(float(item.get("net_edge") or 0.0))
+        gross_edges.append(float(item.get("gross_edge") or 0.0))
+        confidences.append(float(item.get("confidence") or 0.0))
+        meta_confidences.append(float(item.get("meta_confidence") or 0.0))
+        cost_gaps.append(float(item.get("gross_edge") or 0.0) - float(item.get("net_edge") or 0.0))
+        lcb_shortfalls.append((float(item.get("net_edge") or 0.0) - float(item.get("net_edge_lcb") or 0.0)))
+
+        if len(question_samples) < 5:
+            question_samples.append(
+                {
+                    "question": item.get("question"),
+                    "market_type": item.get("market_type"),
+                    "domain_name": item.get("domain_name"),
+                    "net_edge": item.get("net_edge"),
+                    "net_edge_lcb": item.get("net_edge_lcb"),
+                }
+            )
+
+    count = len(rejected)
+    return {
+        "count": count,
+        "by_market_type": dict(sorted(by_market_type.items())),
+        "by_category_group": dict(sorted(by_category.items())),
+        "by_domain_name": dict(sorted(by_domain.items())),
+        "by_semantic_family": dict(sorted(by_semantic_family.items())),
+        "mean_net_edge": _mean(net_edges),
+        "mean_gross_edge": _mean(gross_edges),
+        "mean_confidence": _mean(confidences),
+        "mean_meta_confidence": _mean(meta_confidences),
+        "mean_raw_adjustment": _mean(raw_adjustments),
+        "mean_cost_gap": _mean(cost_gaps),
+        "mean_lcb_shortfall": _mean(lcb_shortfalls),
+        "mean_uncertainty": _mean(uncertainty_values),
+        "mean_correlation_penalty": _mean(correlation_penalties),
+        "mean_graph_penalty": _mean(graph_penalties),
+        "mean_regime_penalty": _mean(regime_penalties),
+        "mean_total_penalty": _mean(total_penalties),
+        "mean_relation_inconsistency": _mean(relation_inconsistency),
+        "mean_relation_constraint_violation": _mean(relation_constraint_violation),
+        "mean_relation_support_confidence": _mean(relation_support_confidence),
+        "sample_questions": question_samples,
+    }
 
 
 def _annotate_candidates_with_graph_and_robust_signal(candidates):
@@ -396,6 +494,7 @@ def _annotate_candidates_with_graph_and_robust_signal(candidates):
         candidate.gross_edge_lcb = robust["gross_edge_lcb"]
         candidate.net_edge_lcb = robust["net_edge_lcb"]
         candidate.robustness_score = robust["robustness_score"]
+        candidate.model["robust"] = robust
 
 
 _STAGE_NAMES = (
@@ -434,6 +533,7 @@ def build_candidates(
     rejects = {
         "low_liquidity": 0,
         "low_volume": 0,
+        "excluded_intraday_crypto": 0,
         "excluded_pattern": 0,
         "no_price": 0,
         "no_orderbook": 0,
@@ -860,6 +960,7 @@ def build_candidates(
         },
         "market_type_edge_summary": {},
         "top_rejected_by_edge": _top_edge_rejections(edge_rejections),
+        "low_lcb_edge_analysis": _summarize_low_lcb_edge(edge_rejections),
     }
 
     grouped_by_type = defaultdict(list)
@@ -1129,6 +1230,26 @@ def main():
                 f"  {item['question']}\n"
                 f"  {item['link']}"
             )
+
+    low_lcb_analysis = diagnostics.get("low_lcb_edge_analysis", {})
+    if low_lcb_analysis:
+        print("Low LCB edge breakdown:")
+        print(
+            {
+                "count": low_lcb_analysis.get("count"),
+                "by_market_type": low_lcb_analysis.get("by_market_type"),
+                "by_domain_name": low_lcb_analysis.get("by_domain_name"),
+                "mean_net_edge": low_lcb_analysis.get("mean_net_edge"),
+                "mean_lcb_shortfall": low_lcb_analysis.get("mean_lcb_shortfall"),
+                "mean_cost_gap": low_lcb_analysis.get("mean_cost_gap"),
+                "mean_uncertainty": low_lcb_analysis.get("mean_uncertainty"),
+                "mean_correlation_penalty": low_lcb_analysis.get("mean_correlation_penalty"),
+                "mean_graph_penalty": low_lcb_analysis.get("mean_graph_penalty"),
+                "mean_regime_penalty": low_lcb_analysis.get("mean_regime_penalty"),
+                "mean_total_penalty": low_lcb_analysis.get("mean_total_penalty"),
+                "mean_relation_inconsistency": low_lcb_analysis.get("mean_relation_inconsistency"),
+            }
+        )
 
     top = sorted(
         summary["executed"],

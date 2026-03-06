@@ -382,6 +382,7 @@ def run():
     rejects = {
         "low_liquidity": 0,
         "low_volume": 0,
+        "excluded_intraday_crypto": 0,
         "excluded_pattern": 0,
         "no_price": 0,
         "no_orderbook": 0,

@@ -1,5 +1,6 @@
 from config import (
     EDGE_THRESHOLD,
+    EXCLUDE_INTRADAY_CRYPTO,
     EXCLUDED_QUESTION_PATTERNS,
     MAX_PRICE,
     MAX_SPREAD,
@@ -89,6 +90,18 @@ _TYPE_SCORING_OVERRIDES = {
 }
 
 
+def _is_intraday_crypto_noise(market, profile):
+    if not EXCLUDE_INTRADAY_CRYPTO:
+        return False
+    if profile["market_type"] != "dated_binary":
+        return False
+    if profile["category_group"] != "crypto":
+        return False
+
+    question = str(market.get("question") or "").lower()
+    return "up or down" in question
+
+
 def filter_policy_for_market(market):
     profile = enrich_market_profile(market)
     policy = {
@@ -142,7 +155,11 @@ def signal_bucket(net_edge, policy, net_edge_lcb=None):
 
 def filter_reason(market, entry_price=None, use_liquidity_filter=True):
     policy = filter_policy_for_market(market)
+    profile = enrich_market_profile(market)
     question = str(market.get("question") or "").lower()
+    if _is_intraday_crypto_noise(market, profile):
+        return "excluded_intraday_crypto"
+
     for pattern in policy["excluded_patterns"]:
         if pattern and pattern in question:
             return "excluded_pattern"
