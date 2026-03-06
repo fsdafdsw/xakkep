@@ -158,13 +158,16 @@ def _prepare_live_metrics(metrics):
         "anomaly": metrics.get("anomaly", 0.5),
         "orderbook": metrics.get("orderbook", 0.5),
         "news": metrics.get("news", 0.5),
-        "external": 0.5,
-        "external_confidence": 0.5,
-        "domain_name": "disabled",
-        "domain_signal": 0.5,
-        "domain_confidence": 0.5,
+        "external": metrics.get("external", 0.5),
+        "external_confidence": metrics.get("external_confidence", 0.5),
+        "domain_name": metrics.get("domain_name"),
+        "domain_signal": metrics.get("domain_signal", 0.5),
+        "domain_confidence": metrics.get("domain_confidence", 0.5),
         "market_type": metrics.get("market_type"),
         "category_group": metrics.get("category_group"),
+        "adjustment_multiplier": metrics.get("adjustment_multiplier", 1.0),
+        "factor_weights": metrics.get("factor_weights"),
+        "external_components": metrics.get("external_components"),
         "confidence": _baseline_confidence(metrics),
     }
 
@@ -178,6 +181,7 @@ def _build_candidate(item, score_policy):
     robust = item.get("robust") or {}
     domain_components = _candidate_domain_components(item["metrics"])
     relation_metrics = item["market"].get("relation_metrics") or {}
+    relation_residual = item["market"].get("relation_residual") or {}
     resolution_metadata = item["market"].get("resolution_metadata") or {}
 
     fair_lcb = item.get("fair_lcb")
@@ -224,6 +228,10 @@ def _build_candidate(item, score_policy):
         "exclusive_degree": relation_metrics.get("exclusive_degree", 0),
         "monotonic_degree": relation_metrics.get("monotonic_degree", 0),
         "relation_confidence": relation_metrics.get("relation_confidence", 0.0),
+        "relation_support_price": relation_residual.get("support_price"),
+        "relation_residual": relation_residual.get("residual", 0.0),
+        "relation_support_confidence": relation_residual.get("support_confidence", 0.0),
+        "relation_inconsistency": relation_residual.get("inconsistency_score", 0.0),
         "semantic_family": resolution_metadata.get("family"),
         "semantic_confidence": resolution_metadata.get("confidence", 0.0),
         "stake_usd": max(item.get("stake_usd", 0.0), 0.0),
@@ -244,6 +252,7 @@ def _build_candidate(item, score_policy):
             "graph": graph,
             "robust": robust,
             "relation_metrics": relation_metrics,
+            "relation_residual": relation_residual,
             "resolution_metadata": resolution_metadata,
         },
         "policy": {

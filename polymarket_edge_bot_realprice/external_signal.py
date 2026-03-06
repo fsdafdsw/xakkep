@@ -1,7 +1,12 @@
 import math
 import re
 
-from config import DOMAIN_CONFIDENCE_WEIGHT, DOMAIN_SIGNAL_WEIGHT
+from config import (
+    DOMAIN_CONFIDENCE_WEIGHT,
+    DOMAIN_SIGNAL_WEIGHT,
+    RELATION_CONFIDENCE_WEIGHT,
+    RELATION_SIGNAL_WEIGHT,
+)
 from domain_predictor import compute_domain_predictor
 from market_profile import as_int, contains_any, enrich_market_profile, normalize_text
 
@@ -171,7 +176,12 @@ def compute_external_signal(market):
     category_risk = _category_risk(market, question_text)
     domain = compute_domain_predictor(market)
     relation_metrics = market.get("relation_metrics") or {}
+    relation_residual = market.get("relation_residual") or {}
     parsed = market.get("resolution_metadata") or {}
+    residual = float(relation_residual.get("residual") or 0.0)
+    support_confidence = float(relation_residual.get("support_confidence") or 0.0)
+    inconsistency_score = float(relation_residual.get("inconsistency_score") or 0.0)
+    constraint_violation = float(relation_residual.get("constraint_violation") or 0.0)
 
     signal = 0.5
     signal += (specificity - 0.5) * 0.12
@@ -182,6 +192,7 @@ def compute_external_signal(market):
     signal -= category_risk * 0.08
     signal += profile["signal_bias"]
     signal += (domain["signal"] - 0.5) * DOMAIN_SIGNAL_WEIGHT
+    signal += max(-0.020, min(0.020, residual)) * RELATION_SIGNAL_WEIGHT * (0.60 + (support_confidence * 0.40))
 
     confidence = 0.54
     confidence += (specificity - 0.5) * 0.25
@@ -193,6 +204,9 @@ def compute_external_signal(market):
     confidence += (domain["confidence"] - 0.5) * DOMAIN_CONFIDENCE_WEIGHT
     confidence += min(0.05, relation_metrics.get("relation_confidence", 0.0) * 0.05)
     confidence += min(0.04, float(parsed.get("confidence") or 0.0) * 0.04)
+    confidence += (support_confidence - 0.5) * RELATION_CONFIDENCE_WEIGHT
+    confidence -= inconsistency_score * 0.10
+    confidence -= min(0.06, constraint_violation * 1.2)
 
     return {
         "signal": _clamp(signal),
@@ -216,6 +230,7 @@ def compute_external_signal(market):
             "structure_flags": profile["structure_flags"],
             "resolution_metadata": parsed,
             "relation_metrics": relation_metrics,
+            "relation_residual": relation_residual,
             "domain": {
                 "name": domain["name"],
                 "signal": domain["signal"],

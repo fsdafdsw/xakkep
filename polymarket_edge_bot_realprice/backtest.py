@@ -31,6 +31,7 @@ from filter_policy import (
     scoring_policy_for_market_type,
     signal_bucket,
 )
+from graph_residuals import annotate_relation_residuals
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from relations import annotate_market_relations
@@ -336,6 +337,9 @@ def _build_rejection_payload(candidate, reason):
         "relation_metrics": (
             (candidate.model.get("external_components") or {}).get("relation_metrics") or {}
         ),
+        "relation_residual": (
+            (candidate.model.get("external_components") or {}).get("relation_residual") or {}
+        ),
         "resolution_metadata": (
             (candidate.model.get("external_components") or {}).get("resolution_metadata") or {}
         ),
@@ -623,7 +627,8 @@ def build_candidates(
         if len(prepared_snapshots) >= max_markets:
             break
 
-    annotate_market_relations([item["snapshot"] for item in prepared_snapshots])
+    relation_graph = annotate_market_relations([item["snapshot"] for item in prepared_snapshots])
+    annotate_relation_residuals([item["snapshot"] for item in prepared_snapshots], relation_graph=relation_graph)
 
     for item in prepared_snapshots:
         snapshot = item["snapshot"]
@@ -818,6 +823,33 @@ def build_candidates(
                     for candidate in selected
                 ]
             ),
+            "relation_support_confidence": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "support_confidence",
+                        0.0,
+                    )
+                    for candidate in selected
+                ]
+            ),
+            "relation_residual": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "residual",
+                        0.0,
+                    )
+                    for candidate in selected
+                ]
+            ),
+            "relation_inconsistency": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "inconsistency_score",
+                        0.0,
+                    )
+                    for candidate in selected
+                ]
+            ),
             "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in selected]),
             "robustness_score": distribution_stats([candidate.robustness_score for candidate in selected]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in selected]),
@@ -853,6 +885,33 @@ def build_candidates(
                 [
                     ((candidate.model.get("external_components") or {}).get("relation_metrics") or {}).get(
                         "relation_confidence",
+                        0.0,
+                    )
+                    for candidate in group
+                ]
+            ),
+            "relation_support_confidence": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "support_confidence",
+                        0.0,
+                    )
+                    for candidate in group
+                ]
+            ),
+            "relation_residual": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "residual",
+                        0.0,
+                    )
+                    for candidate in group
+                ]
+            ),
+            "relation_inconsistency": distribution_stats(
+                [
+                    ((candidate.model.get("external_components") or {}).get("relation_residual") or {}).get(
+                        "inconsistency_score",
                         0.0,
                     )
                     for candidate in group

@@ -136,7 +136,16 @@ def build_market_relations(markets):
                     + ((left.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.15)
                     + ((right.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.15),
                 )
-                _add_edge(edges, metrics, left, right, "mutually_exclusive", confidence, seen_edges=seen_edges)
+                _add_edge(
+                    edges,
+                    metrics,
+                    left,
+                    right,
+                    "mutually_exclusive",
+                    confidence,
+                    detail={"event_key": _event_key(left)},
+                    seen_edges=seen_edges,
+                )
                 left_id = left.get("id")
                 right_id = right.get("id")
                 market_event_links[left_id].add(_event_key(right))
@@ -149,6 +158,7 @@ def build_market_relations(markets):
             threshold_markets,
             key=lambda market: float(((market.get("resolution_metadata") or {}).get("threshold") or {}).get("value") or 0.0),
         )
+        threshold_direction = ((ordered[0].get("resolution_metadata") or {}).get("threshold") or {}).get("direction")
         for idx, left in enumerate(ordered[:-1]):
             right = ordered[idx + 1]
             confidence = min(
@@ -157,7 +167,20 @@ def build_market_relations(markets):
                 + ((left.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.12)
                 + ((right.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.12),
             )
-            _add_edge(edges, metrics, left, right, "threshold_monotonic", confidence, seen_edges=seen_edges)
+            _add_edge(
+                edges,
+                metrics,
+                left,
+                right,
+                "threshold_monotonic",
+                confidence,
+                detail={
+                    "direction": threshold_direction,
+                    "left_value": ((left.get("resolution_metadata") or {}).get("threshold") or {}).get("value"),
+                    "right_value": ((right.get("resolution_metadata") or {}).get("threshold") or {}).get("value"),
+                },
+                seen_edges=seen_edges,
+            )
             left_id = left.get("id")
             right_id = right.get("id")
             market_event_links[left_id].add(_event_key(right))
@@ -167,6 +190,7 @@ def build_market_relations(markets):
         if len(date_markets) <= 1:
             continue
         ordered = sorted(date_markets, key=lambda market: (market.get("resolution_metadata") or {}).get("target_date") or "")
+        comparator = (ordered[0].get("resolution_metadata") or {}).get("comparator")
         for idx, left in enumerate(ordered[:-1]):
             right = ordered[idx + 1]
             confidence = min(
@@ -175,7 +199,20 @@ def build_market_relations(markets):
                 + ((left.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.12)
                 + ((right.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.12),
             )
-            _add_edge(edges, metrics, left, right, "time_monotonic", confidence, seen_edges=seen_edges)
+            _add_edge(
+                edges,
+                metrics,
+                left,
+                right,
+                "time_monotonic",
+                confidence,
+                detail={
+                    "comparator": comparator,
+                    "left_date": (left.get("resolution_metadata") or {}).get("target_date"),
+                    "right_date": (right.get("resolution_metadata") or {}).get("target_date"),
+                },
+                seen_edges=seen_edges,
+            )
             left_id = left.get("id")
             right_id = right.get("id")
             market_event_links[left_id].add(_event_key(right))
@@ -197,7 +234,16 @@ def build_market_relations(markets):
                     + ((anchor.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.08)
                     + ((peer.get("resolution_metadata") or {}).get("confidence", 0.4) * 0.08),
                 )
-                _add_edge(edges, metrics, anchor, peer, "same_entity_cross_market", confidence, seen_edges=seen_edges)
+                _add_edge(
+                    edges,
+                    metrics,
+                    anchor,
+                    peer,
+                    "same_entity_cross_market",
+                    confidence,
+                    detail={"entity_key": _primary_entity_key(anchor)},
+                    seen_edges=seen_edges,
+                )
                 anchor_id = anchor.get("id")
                 peer_id = peer.get("id")
                 market_event_links[anchor_id].add(_event_key(peer))

@@ -8,6 +8,7 @@ from config import (
     UNCERTAINTY_EXTERNAL_CONF_WEIGHT,
     UNCERTAINTY_HORIZON_WEIGHT,
     UNCERTAINTY_MULTI_OUTCOME_WEIGHT,
+    UNCERTAINTY_RELATION_WEIGHT,
     UNCERTAINTY_SPREAD_WEIGHT,
 )
 from market_profile import as_int
@@ -54,12 +55,17 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     domain = external_components.get("domain") or {}
     domain_components = domain.get("components") or {}
     relation_metrics = external_components.get("relation_metrics") or {}
+    relation_residual = external_components.get("relation_residual") or {}
     resolution_metadata = external_components.get("resolution_metadata") or {}
     resolution_quality = _safe_float(external_components.get("resolution_quality"), 0.5)
     specificity = _safe_float(external_components.get("specificity"), 0.5)
     semantic_confidence = _safe_float(resolution_metadata.get("confidence"), 0.0)
     relation_confidence = _safe_float(relation_metrics.get("relation_confidence"), 0.0)
     relation_degree = _safe_float(relation_metrics.get("relation_degree"), 0.0)
+    relation_support_confidence = _safe_float(relation_residual.get("support_confidence"), 0.0)
+    relation_constraint_violation = _safe_float(relation_residual.get("constraint_violation"), 0.0)
+    relation_inconsistency = _safe_float(relation_residual.get("inconsistency_score"), 0.0)
+    relation_residual_gap = _safe_float(relation_residual.get("residual"), 0.0)
     horizon_risk = _safe_float(external_components.get("horizon_risk"), 0.25)
     category_risk = _safe_float(external_components.get("category_risk"), 0.0)
     competition_risk = _safe_float(external_components.get("competition_risk"), 0.0)
@@ -90,6 +96,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     reliability += semantic_confidence * 0.08
     reliability += relation_confidence * 0.08
     reliability += min(0.06, relation_degree * 0.01)
+    reliability += relation_support_confidence * 0.12
+    reliability += min(0.06, max(0.0, relation_residual_gap) * 1.5)
     reliability += odds_match_quality * 0.10
     reliability += min(0.10, odds_bookmaker_count * 0.015)
     reliability += odds_feed_flag * 0.06
@@ -104,6 +112,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     skepticism += domain_draw_penalty * 0.20
     skepticism += domain_noise_flag * 0.18
     skepticism += min(0.12, odds_dispersion * 2.8)
+    skepticism += relation_inconsistency * 0.18
+    skepticism += min(0.12, relation_constraint_violation * 1.8)
 
     supported_adjustment = min(raw_adjustment, 0.035) / 0.035
     overreach = max(0.0, raw_adjustment - (0.008 + (0.030 * reliability)))
@@ -120,6 +130,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     uncertainty += horizon_risk * UNCERTAINTY_HORIZON_WEIGHT
     uncertainty += category_risk * UNCERTAINTY_CATEGORY_WEIGHT
     uncertainty += multi_outcome_risk * UNCERTAINTY_MULTI_OUTCOME_WEIGHT
+    uncertainty += relation_inconsistency * UNCERTAINTY_RELATION_WEIGHT
     uncertainty += competition_risk * 0.012
     uncertainty += price_extremeness * 0.015
     uncertainty += domain_draw_penalty * 0.012
@@ -189,5 +200,9 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
             "semantic_confidence": semantic_confidence,
             "relation_confidence": relation_confidence,
             "relation_degree": relation_degree,
+            "relation_support_confidence": relation_support_confidence,
+            "relation_constraint_violation": relation_constraint_violation,
+            "relation_inconsistency": relation_inconsistency,
+            "relation_residual_gap": relation_residual_gap,
         },
     }

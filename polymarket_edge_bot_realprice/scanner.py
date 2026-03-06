@@ -12,6 +12,7 @@ from config import (
     REQUEST_TIMEOUT_SECONDS,
 )
 from entity_normalization import extract_market_entities
+from graph_residuals import annotate_relation_residuals
 from market_profile import enrich_market_profile
 from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
@@ -272,5 +273,6 @@ def fetch_markets(limit=5000):
         offset += page_size
 
     selected = markets[:limit]
-    annotate_market_relations(selected)
+    relation_graph = annotate_market_relations(selected)
+    annotate_relation_residuals(selected, relation_graph=relation_graph)
     return selected
