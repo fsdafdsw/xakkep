@@ -68,7 +68,24 @@ _SPORTS_KEYWORDS = (
     "la liga",
 )
 _ENTERTAINMENT_KEYWORDS = ("movie", "film", "oscars", "academy award", "eurovision", "box office")
-_CRYPTO_KEYWORDS = ("bitcoin", "btc", "eth", "ethereum", "sol", "crypto", "token")
+_CRYPTO_KEYWORDS = (
+    "bitcoin",
+    "btc",
+    "eth",
+    "ethereum",
+    "sol",
+    "solana",
+    "xrp",
+    "ripple",
+    "doge",
+    "dogecoin",
+    "ada",
+    "cardano",
+    "ltc",
+    "litecoin",
+    "crypto",
+    "token",
+)
 _BUSINESS_KEYWORDS = ("market cap", "stock", "company", "earnings", "apple", "tesla", "nvidia")
 
 _PROFILE_CONFIG = {
