@@ -14,27 +14,20 @@ from config import (
     EDGE_THRESHOLD,
     ESTIMATED_SLIPPAGE_BPS,
     EVENT_NEUTRALIZATION_STRENGTH,
-    EXCLUDED_QUESTION_PATTERNS,
     KELLY_FRACTION,
     MAX_BET_USD,
-    MAX_PRICE,
     MAX_SIGNALS_PER_EVENT,
-    MAX_SPREAD,
     MAX_TOTAL_EXPOSURE_PCT,
     MIN_CONFIDENCE,
     MIN_GROSS_EDGE,
-    MIN_HOURS_TO_CLOSE,
-    MIN_LIQUIDITY,
-    MIN_PRICE,
-    MIN_VOLUME,
     MODEL_ADJUSTMENT_SCALE,
-    REQUIRE_ORDERBOOK,
     REQUEST_BACKOFF_SECONDS,
     REQUEST_RETRIES,
     REQUEST_TIMEOUT_SECONDS,
     TAKER_FEE_BPS,
 )
 from diagnostics import distribution_stats
+from filter_policy import filter_reason
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from strategy import evaluate_market
@@ -239,44 +232,13 @@ def _dedupe_per_event(candidates):
 
 
 def _passes_backtest_filters(market, rejects, use_liquidity_filter):
-    question = str(market.get("question") or "").lower()
-    for pattern in EXCLUDED_QUESTION_PATTERNS:
-        if pattern and pattern in question:
-            rejects["excluded_pattern"] += 1
-            return False
-
-    volume_ref = market.get("volume24h", 0.0) or market.get("volume", 0.0)
-    price = market.get("ref_price")
-
-    if use_liquidity_filter and market.get("liquidity", 0.0) < MIN_LIQUIDITY:
-        rejects["low_liquidity"] += 1
-        return False
-
-    if volume_ref < MIN_VOLUME:
-        rejects["low_volume"] += 1
-        return False
-
-    if price is None:
-        rejects["no_price"] += 1
-        return False
-
-    if REQUIRE_ORDERBOOK and (
-        market.get("best_bid") is None or market.get("best_ask") is None
-    ):
-        rejects["no_orderbook"] += 1
-        return False
-
-    if price < MIN_PRICE or price > MAX_PRICE:
-        rejects["extreme_price"] += 1
-        return False
-
-    spread = market.get("spread")
-    if spread is not None and spread > MAX_SPREAD:
-        rejects["wide_spread"] += 1
-        return False
-
-    if market.get("hours_to_close", 0.0) < MIN_HOURS_TO_CLOSE:
-        rejects["near_expiry"] += 1
+    reason = filter_reason(
+        market,
+        entry_price=market.get("ref_price"),
+        use_liquidity_filter=use_liquidity_filter,
+    )
+    if reason:
+        rejects[reason] += 1
         return False
 
     return True

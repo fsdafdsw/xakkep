@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import *
+from filter_policy import filter_reason
 from probability_model import (
     estimated_probability,
     kelly_bet_fraction,
@@ -38,45 +39,10 @@ def _market_link(market):
 
 
 def _passes_filters(market, rejects):
-    question = str(market.get("question") or "").lower()
-    for pattern in EXCLUDED_QUESTION_PATTERNS:
-        if pattern and pattern in question:
-            rejects["excluded_pattern"] += 1
-            return False
-
-    volume_ref = market.get("volume24h", 0.0) or market.get("volume", 0.0)
     entry = _entry_price(market)
-
-    if market.get("liquidity", 0.0) < MIN_LIQUIDITY:
-        rejects["low_liquidity"] += 1
-        return False
-
-    if volume_ref < MIN_VOLUME:
-        rejects["low_volume"] += 1
-        return False
-
-    if market.get("ref_price") is None:
-        rejects["no_price"] += 1
-        return False
-
-    if REQUIRE_ORDERBOOK and (
-        market.get("best_bid") is None or market.get("best_ask") is None
-    ):
-        rejects["no_orderbook"] += 1
-        return False
-
-    if entry is None or entry < MIN_PRICE or entry > MAX_PRICE:
-        rejects["extreme_price"] += 1
-        return False
-
-    spread = market.get("spread")
-    if spread is not None and spread > MAX_SPREAD:
-        rejects["wide_spread"] += 1
-        return False
-
-    hours_to_close = market.get("hours_to_close")
-    if hours_to_close is not None and hours_to_close < MIN_HOURS_TO_CLOSE:
-        rejects["near_expiry"] += 1
+    reason = filter_reason(market, entry_price=entry, use_liquidity_filter=True)
+    if reason:
+        rejects[reason] += 1
         return False
 
     return True
