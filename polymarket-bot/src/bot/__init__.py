@@ -1,1 +1,0 @@
-"""Polymarket bot blueprint package."""
