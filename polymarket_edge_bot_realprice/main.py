@@ -284,6 +284,7 @@ def run():
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     report = f"""Polymarket edge scan - {utc_now}
 build={BOT_BUILD_ID} | format=v3
+source={BOT_SOURCE}
 
 Scanned: {len(markets)}
 Passed base filters: {len(accepted)}

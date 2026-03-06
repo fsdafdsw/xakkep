@@ -53,3 +53,5 @@ BOT_BUILD_ID = (
     or os.getenv("GITHUB_SHA", "local")
 )
 BOT_BUILD_ID = BOT_BUILD_ID[:7] if BOT_BUILD_ID else "unknown"
+
+BOT_SOURCE = os.getenv("BOT_SOURCE", "unknown")
