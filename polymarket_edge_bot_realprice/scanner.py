@@ -22,6 +22,15 @@ def _safe_float(value):
         return None
 
 
+def _safe_int(value):
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_json_list(value):
     if value is None:
         return []
@@ -69,10 +78,21 @@ def _value_at(seq, index, cast=str):
 
 
 def _extract_event_meta(market):
+    meta = {
+        "event_slug": None,
+        "event_id": str(market.get("eventId")) if market.get("eventId") else None,
+        "event_title": market.get("eventTitle") or market.get("title"),
+        "event_description": market.get("eventDescription"),
+        "event_category": market.get("category"),
+        "resolution_source": market.get("resolutionSource"),
+        "event_market_count": _safe_int(
+            market.get("eventMarketCount") or market.get("marketCount") or market.get("marketsCount")
+        ),
+    }
+
     event_slug = market.get("eventSlug")
-    event_id = market.get("eventId")
     if isinstance(event_slug, str) and event_slug.strip():
-        return {"event_slug": event_slug.strip(), "event_id": str(event_id) if event_id else None}
+        meta["event_slug"] = event_slug.strip()
 
     events = market.get("events")
     if isinstance(events, str):
@@ -84,13 +104,30 @@ def _extract_event_meta(market):
         for event in events:
             if isinstance(event, dict):
                 slug = event.get("slug")
+                if meta["event_slug"] is None and isinstance(slug, str) and slug.strip():
+                    meta["event_slug"] = slug.strip()
+
                 ev_id = event.get("id")
-                if isinstance(slug, str) and slug.strip():
-                    return {
-                        "event_slug": slug.strip(),
-                        "event_id": str(ev_id) if ev_id is not None else None,
-                    }
-    return {"event_slug": None, "event_id": None}
+                if meta["event_id"] is None and ev_id is not None:
+                    meta["event_id"] = str(ev_id)
+
+                if not meta["event_title"]:
+                    meta["event_title"] = event.get("title")
+                if not meta["event_description"]:
+                    meta["event_description"] = event.get("description")
+                if not meta["event_category"]:
+                    meta["event_category"] = event.get("category")
+                if not meta["resolution_source"]:
+                    meta["resolution_source"] = event.get("resolutionSource")
+                if meta["event_market_count"] is None:
+                    event_markets = event.get("markets")
+                    if isinstance(event_markets, list):
+                        meta["event_market_count"] = len(event_markets)
+                    else:
+                        meta["event_market_count"] = _safe_int(
+                            event.get("marketsCount") or event.get("marketCount") or event.get("numMarkets")
+                        )
+    return meta
 
 
 def _hours_to_close(end_date):
@@ -157,6 +194,11 @@ def _normalize_market(raw):
         "question": raw.get("question"),
         "slug": raw.get("slug"),
         "event_slug": event_meta["event_slug"],
+        "event_title": event_meta["event_title"],
+        "event_description": event_meta["event_description"],
+        "event_category": event_meta["event_category"],
+        "resolution_source": event_meta["resolution_source"],
+        "event_market_count": event_meta["event_market_count"],
         "active": bool(raw.get("active", False)),
         "closed": bool(raw.get("closed", False)),
         "volume": _safe_float(raw.get("volume")) or 0.0,
@@ -164,10 +206,12 @@ def _normalize_market(raw):
         or _safe_float(raw.get("volume24hrClob"))
         or 0.0,
         "liquidity": _safe_float(raw.get("liquidity")) or 0.0,
+        "outcome_count": max(len(outcomes), len(prices), len(token_ids)),
         "selected_outcome_index": selected_idx,
         "selected_outcome": selected_outcome,
         "selected_price": selected_price,
         "selected_token_id": selected_token,
+        "market_description": raw.get("description"),
         # Backward compatibility for older code paths.
         "yes_price": selected_price,
         "ref_price": ref_price,

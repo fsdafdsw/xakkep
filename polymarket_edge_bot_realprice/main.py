@@ -238,6 +238,16 @@ def run():
             "net_edge": item["net_edge"],
             "confidence": confidence,
             "stake_usd": max(item["stake_usd"], 0.0),
+            "model": {
+                "quality": item["metrics"].get("quality"),
+                "momentum": item["metrics"].get("momentum"),
+                "anomaly": item["metrics"].get("anomaly"),
+                "orderbook": item["metrics"].get("orderbook"),
+                "news": item["metrics"].get("news"),
+                "external": item["metrics"].get("external"),
+                "external_confidence": item["metrics"].get("external_confidence"),
+                "external_components": item["metrics"].get("external_components"),
+            },
         }
 
         if item["net_edge"] > EDGE_THRESHOLD:
