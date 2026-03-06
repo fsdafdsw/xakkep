@@ -24,6 +24,7 @@ from config import (
     TAKER_FEE_BPS,
 )
 from diagnostics import distribution_stats
+from event_graph import compute_event_graph_metrics
 from filter_policy import (
     filter_reason,
     scoring_policy_for_market_type,
@@ -31,6 +32,7 @@ from filter_policy import (
 )
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
+from robust_signal import compute_robust_signal
 from strategy import evaluate_market
 
 GAMMA_EVENTS_API = "https://gamma-api.polymarket.com/events"
@@ -258,11 +260,19 @@ class Candidate:
     settle_ts: int
     entry: float
     fair: float
+    fair_lcb: float
     gross_edge: float
     net_edge: float
+    gross_edge_lcb: float
+    net_edge_lcb: float
     confidence: float
+    meta_confidence: float
+    graph_consistency: float
+    robustness_score: float
     resolved_outcome: int
     spread: Optional[float]
+    policy: dict
+    model: dict
 
 
 @dataclass
@@ -283,6 +293,13 @@ def _bump_stage(diag, stage_name, market_type=None, category_group=None):
         diag["category_stage_counts"][stage_name][category_group] += 1
 
 
+def _bump_reject(diag, reason, market_type=None, category_group=None):
+    if market_type:
+        diag["rejects_by_market_type"][reason][market_type] += 1
+    if category_group:
+        diag["rejects_by_category"][reason][category_group] += 1
+
+
 def _finalize_stage_map(stage_map):
     return {
         stage_name: dict(sorted(counts.items()))
@@ -291,7 +308,6 @@ def _finalize_stage_map(stage_map):
 
 
 def _build_rejection_payload(candidate, reason):
-    score_policy = scoring_policy_for_market_type(candidate.market_type)
     return {
         "question": candidate.question,
         "event_slug": candidate.event_slug,
@@ -301,16 +317,17 @@ def _build_rejection_payload(candidate, reason):
         "entry_utc": _to_utc_str(candidate.entry_ts),
         "entry": candidate.entry,
         "fair": candidate.fair,
+        "fair_lcb": candidate.fair_lcb,
         "gross_edge": candidate.gross_edge,
         "net_edge": candidate.net_edge,
+        "gross_edge_lcb": candidate.gross_edge_lcb,
+        "net_edge_lcb": candidate.net_edge_lcb,
         "confidence": candidate.confidence,
+        "meta_confidence": candidate.meta_confidence,
+        "graph_consistency": candidate.graph_consistency,
+        "robustness_score": candidate.robustness_score,
         "reject_reason": reason,
-        "policy": {
-            "min_confidence": score_policy["min_confidence"],
-            "min_gross_edge": score_policy["min_gross_edge"],
-            "edge_threshold": score_policy["edge_threshold"],
-            "watch_threshold": score_policy["watch_threshold"],
-        },
+        "policy": dict(candidate.policy),
         "link": f"https://polymarket.com/event/{candidate.event_slug}?tid={candidate.token_id}",
     }
 
@@ -319,12 +336,49 @@ def _top_edge_rejections(rejections, limit=8):
     ranked = sorted(
         rejections,
         key=lambda item: (
+            item.get("net_edge_lcb"),
             item["net_edge"] if item["net_edge"] is not None else item["gross_edge"],
             item["gross_edge"],
         ),
         reverse=True,
     )
     return ranked[:limit]
+
+
+def _annotate_candidates_with_graph_and_robust_signal(candidates):
+    nodes = []
+    for candidate in candidates:
+        nodes.append(
+            {
+                "event_key": candidate.event_id or candidate.event_slug or candidate.market_slug,
+                "implied": candidate.entry,
+                "fair": candidate.fair,
+                "market_type": candidate.market_type,
+                "event_market_count": None,
+            }
+        )
+
+    graph_metrics = compute_event_graph_metrics(nodes)
+    for candidate, graph in zip(candidates, graph_metrics):
+        graph = graph or {}
+        candidate.graph_consistency = graph.get("consistency", 0.0)
+        candidate.policy = scoring_policy_for_market_type(candidate.market_type)
+        robust = compute_robust_signal(
+            market={
+                "ref_price": candidate.entry,
+                "best_ask": candidate.entry,
+                "spread": candidate.spread,
+                "event_market_count": graph.get("event_size"),
+            },
+            metrics=candidate.model,
+            fair=candidate.fair,
+            graph_metrics=graph,
+        )
+        candidate.meta_confidence = robust["meta_confidence"]
+        candidate.fair_lcb = robust["fair_lcb"]
+        candidate.gross_edge_lcb = robust["gross_edge_lcb"]
+        candidate.net_edge_lcb = robust["net_edge_lcb"]
+        candidate.robustness_score = robust["robustness_score"]
 
 
 _STAGE_NAMES = (
@@ -340,6 +394,10 @@ _STAGE_NAMES = (
     "post_neutralization",
     "after_confidence",
     "after_gross_edge",
+    "after_meta_confidence",
+    "after_graph_consistency",
+    "after_robustness",
+    "after_lcb_edge",
     "after_net_edge",
     "final_candidates",
 )
@@ -368,6 +426,10 @@ def build_candidates(
         "low_confidence": 0,
         "low_gross_edge": 0,
         "low_net_edge": 0,
+        "low_meta_confidence": 0,
+        "low_graph_consistency": 0,
+        "low_robustness": 0,
+        "low_lcb_edge": 0,
     }
     reasons = {
         "not_binary": 0,
@@ -547,11 +609,19 @@ def build_candidates(
                     settle_ts=settle_ts,
                     entry=entry_price,
                     fair=fair,
+                    fair_lcb=0.0,
                     gross_edge=0.0,
                     net_edge=0.0,
+                    gross_edge_lcb=0.0,
+                    net_edge_lcb=0.0,
                     confidence=metrics.get("confidence", 0.5),
+                    meta_confidence=0.0,
+                    graph_consistency=0.0,
+                    robustness_score=0.0,
                     resolved_outcome=resolved_outcome,
                     spread=spread,
+                    policy={},
+                    model=dict(metrics),
                 )
             )
             if len(selected) >= max_markets:
@@ -565,6 +635,7 @@ def build_candidates(
         _recompute_candidate_edges(candidate)
 
     _neutralize_candidates_by_event(selected)
+    _annotate_candidates_with_graph_and_robust_signal(selected)
 
     for candidate in selected:
         _bump_stage(
@@ -577,8 +648,10 @@ def build_candidates(
     filtered = []
     for candidate in selected:
         score_policy = scoring_policy_for_market_type(candidate.market_type)
+        candidate.policy = dict(score_policy)
         if candidate.confidence < score_policy["min_confidence"]:
             rejects["low_confidence"] += 1
+            _bump_reject(diagnostics, "low_confidence", candidate.market_type, candidate.category_group)
             continue
         _bump_stage(
             diagnostics,
@@ -589,6 +662,7 @@ def build_candidates(
 
         if candidate.gross_edge < score_policy["min_gross_edge"]:
             rejects["low_gross_edge"] += 1
+            _bump_reject(diagnostics, "low_gross_edge", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
             continue
         _bump_stage(
@@ -597,9 +671,59 @@ def build_candidates(
             market_type=candidate.market_type,
             category_group=candidate.category_group,
         )
-        bucket = signal_bucket(candidate.net_edge, score_policy)
+
+        if candidate.meta_confidence < score_policy["min_meta_confidence"]:
+            rejects["low_meta_confidence"] += 1
+            _bump_reject(diagnostics, "low_meta_confidence", candidate.market_type, candidate.category_group)
+            edge_rejections.append(_build_rejection_payload(candidate, "low_meta_confidence"))
+            continue
+        _bump_stage(
+            diagnostics,
+            "after_meta_confidence",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
+        if candidate.graph_consistency < score_policy["min_graph_consistency"]:
+            rejects["low_graph_consistency"] += 1
+            _bump_reject(diagnostics, "low_graph_consistency", candidate.market_type, candidate.category_group)
+            edge_rejections.append(_build_rejection_payload(candidate, "low_graph_consistency"))
+            continue
+        _bump_stage(
+            diagnostics,
+            "after_graph_consistency",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
+        if candidate.robustness_score < score_policy["min_robustness_score"]:
+            rejects["low_robustness"] += 1
+            _bump_reject(diagnostics, "low_robustness", candidate.market_type, candidate.category_group)
+            edge_rejections.append(_build_rejection_payload(candidate, "low_robustness"))
+            continue
+        _bump_stage(
+            diagnostics,
+            "after_robustness",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
+        if candidate.net_edge_lcb is None or candidate.net_edge_lcb <= score_policy["min_lcb_edge"]:
+            rejects["low_lcb_edge"] += 1
+            _bump_reject(diagnostics, "low_lcb_edge", candidate.market_type, candidate.category_group)
+            edge_rejections.append(_build_rejection_payload(candidate, "low_lcb_edge"))
+            continue
+        _bump_stage(
+            diagnostics,
+            "after_lcb_edge",
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+
+        bucket = signal_bucket(candidate.net_edge, score_policy, net_edge_lcb=candidate.net_edge_lcb)
         if bucket != "value":
             rejects["low_net_edge"] += 1
+            _bump_reject(diagnostics, "low_net_edge", candidate.market_type, candidate.category_group)
             edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
             continue
         _bump_stage(
@@ -611,7 +735,11 @@ def build_candidates(
         filtered.append(candidate)
 
     filtered = _dedupe_per_event(filtered)
-    filtered = sorted(filtered, key=lambda x: x.net_edge, reverse=True)[:max_markets]
+    filtered = sorted(
+        filtered,
+        key=lambda x: (x.net_edge_lcb, x.robustness_score, x.net_edge),
+        reverse=True,
+    )[:max_markets]
     for candidate in filtered:
         _bump_stage(
             diagnostics,
@@ -628,8 +756,13 @@ def build_candidates(
         "rejects_by_category": _finalize_stage_map(diagnostics["rejects_by_category"]),
         "edge_distributions": {
             "confidence": distribution_stats([candidate.confidence for candidate in selected]),
+            "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in selected]),
+            "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in selected]),
+            "robustness_score": distribution_stats([candidate.robustness_score for candidate in selected]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in selected]),
             "net_edge": distribution_stats([candidate.net_edge for candidate in selected]),
+            "gross_edge_lcb": distribution_stats([candidate.gross_edge_lcb for candidate in selected]),
+            "net_edge_lcb": distribution_stats([candidate.net_edge_lcb for candidate in selected]),
         },
         "market_type_edge_summary": {},
         "top_rejected_by_edge": _top_edge_rejections(edge_rejections),
@@ -642,8 +775,12 @@ def build_candidates(
         diagnostics_payload["market_type_edge_summary"][market_type] = {
             "count": len(group),
             "confidence": distribution_stats([candidate.confidence for candidate in group]),
+            "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in group]),
+            "graph_consistency": distribution_stats([candidate.graph_consistency for candidate in group]),
+            "robustness_score": distribution_stats([candidate.robustness_score for candidate in group]),
             "gross_edge": distribution_stats([candidate.gross_edge for candidate in group]),
             "net_edge": distribution_stats([candidate.net_edge for candidate in group]),
+            "net_edge_lcb": distribution_stats([candidate.net_edge_lcb for candidate in group]),
         }
 
     return filtered, rejects, reasons, diagnostics_payload
@@ -686,8 +823,9 @@ def run_simulation(candidates, initial_bankroll: float):
     for c in candidates:
         settle_up_to(c.entry_ts)
 
-        kelly = kelly_bet_fraction(c.fair, c.entry)
-        proposed_stake = cash * kelly * KELLY_FRACTION * c.confidence
+        kelly_probability = c.fair_lcb if c.fair_lcb is not None else c.fair
+        kelly = kelly_bet_fraction(kelly_probability, c.entry)
+        proposed_stake = cash * kelly * KELLY_FRACTION * min(c.confidence, c.robustness_score)
         proposed_stake = min(MAX_BET_USD, proposed_stake)
         if proposed_stake <= 0:
             continue
@@ -843,12 +981,18 @@ def main():
             print(
                 f"- {item['reject_reason']} | {item['market_type']} | "
                 f"net_edge={item['net_edge']:.3f} gross_edge={item['gross_edge']:.3f} "
-                f"conf={item['confidence']:.2f}\n"
+                f"net_edge_lcb={item['net_edge_lcb']:.3f} "
+                f"conf={item['confidence']:.2f} meta={item['meta_confidence']:.2f} "
+                f"graph={item['graph_consistency']:.2f}\n"
                 f"  {item['question']}\n"
                 f"  {item['link']}"
             )
 
-    top = sorted(summary["executed"], key=lambda x: x[0].net_edge, reverse=True)[:5]
+    top = sorted(
+        summary["executed"],
+        key=lambda x: (x[0].net_edge_lcb, x[0].robustness_score, x[0].net_edge),
+        reverse=True,
+    )[:5]
     top_payload = []
     if top:
         print("\nTop executed signals by net_edge:")
@@ -863,9 +1007,14 @@ def main():
                     "entry_utc": _to_utc_str(c.entry_ts),
                     "entry": c.entry,
                     "fair": c.fair,
+                    "fair_lcb": c.fair_lcb,
                     "gross_edge": c.gross_edge,
                     "net_edge": c.net_edge,
+                    "net_edge_lcb": c.net_edge_lcb,
                     "confidence": c.confidence,
+                    "meta_confidence": c.meta_confidence,
+                    "graph_consistency": c.graph_consistency,
+                    "robustness_score": c.robustness_score,
                     "market_type": c.market_type,
                     "category_group": c.category_group,
                     "outlay_usd": outlay,
@@ -875,7 +1024,8 @@ def main():
             )
             print(
                 f"- {_to_utc_str(c.entry_ts)} | edge={c.net_edge:.3f} | "
-                f"entry={c.entry:.3f} fair={c.fair:.3f} outlay=${outlay:.2f}\n"
+                f"edge_lcb={c.net_edge_lcb:.3f} | entry={c.entry:.3f} "
+                f"fair={c.fair:.3f} fair_lcb={c.fair_lcb:.3f} outlay=${outlay:.2f}\n"
                 f"  {c.question}\n  {event_link}"
             )
 
@@ -902,6 +1052,11 @@ def main():
                     "MIN_GROSS_EDGE": os.getenv("MIN_GROSS_EDGE"),
                     "EDGE_THRESHOLD": os.getenv("EDGE_THRESHOLD"),
                     "WATCH_THRESHOLD": os.getenv("WATCH_THRESHOLD"),
+                    "MIN_META_CONFIDENCE": os.getenv("MIN_META_CONFIDENCE"),
+                    "MIN_GRAPH_CONSISTENCY": os.getenv("MIN_GRAPH_CONSISTENCY"),
+                    "MIN_ROBUSTNESS_SCORE": os.getenv("MIN_ROBUSTNESS_SCORE"),
+                    "MIN_LCB_EDGE": os.getenv("MIN_LCB_EDGE"),
+                    "WATCH_LCB_FLOOR": os.getenv("WATCH_LCB_FLOOR"),
                     "MODEL_ADJUSTMENT_SCALE": os.getenv("MODEL_ADJUSTMENT_SCALE"),
                     "MAX_SIGNALS_PER_EVENT": os.getenv("MAX_SIGNALS_PER_EVENT"),
                 },

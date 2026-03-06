@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import *
+from event_graph import compute_event_graph_metrics
 from filter_policy import (
     filter_reason,
     scoring_policy_for_market,
@@ -13,6 +14,7 @@ from probability_model import (
     kelly_bet_fraction,
     net_edge_after_costs,
 )
+from robust_signal import compute_robust_signal
 from scanner import fetch_markets
 from strategy import evaluate_market
 from telegram import send_message
@@ -104,6 +106,38 @@ def _neutralize_by_event(items):
             _recompute_trade_fields(items[i])
 
 
+def _annotate_event_graph_and_robust_signal(items):
+    nodes = []
+    for item in items:
+        market = item["market"]
+        implied = market.get("ref_price")
+        if implied is None:
+            implied = item["entry"]
+        nodes.append(
+            {
+                "event_key": item["event_key"],
+                "implied": implied,
+                "fair": item["fair"],
+                "market_type": item["metrics"].get("market_type"),
+                "event_market_count": market.get("event_market_count"),
+            }
+        )
+
+    graph_metrics = compute_event_graph_metrics(nodes)
+    for item, graph in zip(items, graph_metrics):
+        item["graph"] = graph or {}
+        robust = compute_robust_signal(
+            market=item["market"],
+            metrics=item["metrics"],
+            fair=item["fair"],
+            graph_metrics=item["graph"],
+        )
+        item["robust"] = robust
+        item["fair_lcb"] = robust["fair_lcb"]
+        item["gross_edge_lcb"] = robust["gross_edge_lcb"]
+        item["net_edge_lcb"] = robust["net_edge_lcb"]
+
+
 def _format_signal(rank, candidate):
     outcome_text = candidate.get("selected_outcome") or "unknown"
     outcome_num = (candidate.get("selected_outcome_index") or 0) + 1
@@ -112,8 +146,12 @@ def _format_signal(rank, candidate):
         f"BET: BUY {outcome_text} (outcome #{outcome_num})\n"
         f"{candidate['link']}\n"
         f"entry={candidate['entry']:.3f} fair={candidate['fair']:.3f} "
-        f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
-        f"confidence={candidate['confidence']:.2f} stake=${candidate['stake_usd']:.2f}"
+        f"fair_lcb={candidate['fair_lcb']:.3f}\n"
+        f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f} "
+        f"net_edge_lcb={candidate['net_edge_lcb']:.3f}\n"
+        f"confidence={candidate['confidence']:.2f} meta={candidate['meta_confidence']:.2f} "
+        f"graph={candidate['graph_consistency']:.2f} robust={candidate['robustness_score']:.2f} "
+        f"stake=${candidate['stake_usd']:.2f}"
     )
 
 
@@ -145,6 +183,10 @@ def run():
         "low_confidence": 0,
         "low_gross_edge": 0,
         "low_net_edge": 0,
+        "low_meta_confidence": 0,
+        "low_graph_consistency": 0,
+        "low_robustness": 0,
+        "low_lcb_edge": 0,
     }
     coverage = {
         "price_available": 0,
@@ -182,6 +224,7 @@ def run():
 
     # Event-level neutralization reduces false positives across mutually exclusive outcomes.
     _neutralize_by_event(accepted)
+    _annotate_event_graph_and_robust_signal(accepted)
 
     value_bets = []
     watchlist = []
@@ -198,6 +241,30 @@ def run():
             rejects["low_gross_edge"] += 1
             continue
 
+        robust = item.get("robust") or {}
+        meta_confidence = robust.get("meta_confidence", 0.0)
+        graph_consistency = (item.get("graph") or {}).get("consistency", 0.0)
+        robustness_score = robust.get("robustness_score", 0.0)
+        net_edge_lcb = item.get("net_edge_lcb")
+
+        if meta_confidence < score_policy["min_meta_confidence"]:
+            rejects["low_meta_confidence"] += 1
+            continue
+
+        if graph_consistency < score_policy["min_graph_consistency"]:
+            rejects["low_graph_consistency"] += 1
+            continue
+
+        if robustness_score < score_policy["min_robustness_score"]:
+            rejects["low_robustness"] += 1
+            continue
+
+        kelly_probability = item["fair_lcb"] if item.get("fair_lcb") is not None else item["fair"]
+        robust_multiplier = min(confidence, robustness_score)
+        stake_usd = min(
+            MAX_BET_USD,
+            BANKROLL_USD * kelly_bet_fraction(kelly_probability, item["entry"]) * KELLY_FRACTION * robust_multiplier,
+        )
         candidate = {
             "event_key": item["event_key"],
             "question": item["market"].get("question"),
@@ -208,10 +275,16 @@ def run():
             "link": _market_link(item["market"]),
             "entry": item["entry"],
             "fair": item["fair"],
+            "fair_lcb": item["fair_lcb"],
             "gross_edge": item["gross_edge"],
             "net_edge": item["net_edge"],
+            "gross_edge_lcb": item["gross_edge_lcb"],
+            "net_edge_lcb": net_edge_lcb,
             "confidence": confidence,
-            "stake_usd": max(item["stake_usd"], 0.0),
+            "meta_confidence": meta_confidence,
+            "graph_consistency": graph_consistency,
+            "robustness_score": robustness_score,
+            "stake_usd": max(stake_usd, 0.0),
             "model": {
                 "quality": item["metrics"].get("quality"),
                 "momentum": item["metrics"].get("momentum"),
@@ -223,24 +296,38 @@ def run():
                 "adjustment_multiplier": item["metrics"].get("adjustment_multiplier"),
                 "factor_weights": item["metrics"].get("factor_weights"),
                 "external_components": item["metrics"].get("external_components"),
+                "graph": item.get("graph"),
+                "robust": robust,
             },
             "policy": {
                 "min_confidence": score_policy["min_confidence"],
                 "min_gross_edge": score_policy["min_gross_edge"],
                 "edge_threshold": score_policy["edge_threshold"],
                 "watch_threshold": score_policy["watch_threshold"],
+                "min_meta_confidence": score_policy["min_meta_confidence"],
+                "min_graph_consistency": score_policy["min_graph_consistency"],
+                "min_robustness_score": score_policy["min_robustness_score"],
+                "min_lcb_edge": score_policy["min_lcb_edge"],
+                "watch_lcb_floor": score_policy["watch_lcb_floor"],
             },
         }
 
-        bucket = signal_bucket(item["net_edge"], score_policy)
+        bucket = signal_bucket(item["net_edge"], score_policy, net_edge_lcb=net_edge_lcb)
         if bucket == "value":
             value_bets.append(candidate)
         elif bucket == "watch":
             watchlist.append(candidate)
         else:
-            rejects["low_net_edge"] += 1
+            if net_edge_lcb is None or net_edge_lcb <= score_policy["min_lcb_edge"]:
+                rejects["low_lcb_edge"] += 1
+            else:
+                rejects["low_net_edge"] += 1
 
-    value_bets_sorted = sorted(value_bets, key=lambda x: x["net_edge"], reverse=True)
+    value_bets_sorted = sorted(
+        value_bets,
+        key=lambda x: (x["net_edge_lcb"], x["robustness_score"], x["net_edge"]),
+        reverse=True,
+    )
     exposure_cap = BANKROLL_USD * MAX_TOTAL_EXPOSURE_PCT
     exposure_used = 0.0
     event_usage = defaultdict(int)
@@ -264,7 +351,11 @@ def run():
         if len(value_bets_limited) >= MAX_SIGNALS:
             break
 
-    watchlist_sorted = sorted(watchlist, key=lambda x: x["net_edge"], reverse=True)
+    watchlist_sorted = sorted(
+        watchlist,
+        key=lambda x: (x["net_edge_lcb"], x["robustness_score"], x["net_edge"]),
+        reverse=True,
+    )
     watch_event_usage = defaultdict(int)
     watchlist_limited = []
     for candidate in watchlist_sorted:
@@ -299,7 +390,7 @@ Passed base filters: {len(accepted)}
 Price coverage: {coverage['price_available']}/{len(markets)}
 Orderbook coverage: {coverage['book_available']}/{len(markets)}
 
-Top value bets (net edge after costs)
+Top value bets (point edge plus lower-bound gate)
 
 {signals}
 
@@ -313,6 +404,7 @@ Skipped by exposure cap: {skipped_by_exposure}
 
 Risk params:
 bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
+gates: meta>={MIN_META_CONFIDENCE:.2f} | graph>={MIN_GRAPH_CONSISTENCY:.2f} | robust>={MIN_ROBUSTNESS_SCORE:.2f} | lcb_edge>{MIN_LCB_EDGE:.3f}
 """
 
     report_payload = {
@@ -333,6 +425,10 @@ bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${M
             "max_bet_usd": MAX_BET_USD,
             "max_total_exposure_pct": MAX_TOTAL_EXPOSURE_PCT,
             "max_signals_per_event": MAX_SIGNALS_PER_EVENT,
+            "min_meta_confidence": MIN_META_CONFIDENCE,
+            "min_graph_consistency": MIN_GRAPH_CONSISTENCY,
+            "min_robustness_score": MIN_ROBUSTNESS_SCORE,
+            "min_lcb_edge": MIN_LCB_EDGE,
         },
         "report_text": report,
     }

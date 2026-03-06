@@ -3,14 +3,19 @@ from config import (
     EXCLUDED_QUESTION_PATTERNS,
     MAX_PRICE,
     MAX_SPREAD,
+    MIN_GRAPH_CONSISTENCY,
+    MIN_LCB_EDGE,
     MIN_CONFIDENCE,
     MIN_GROSS_EDGE,
     MIN_HOURS_TO_CLOSE,
     MIN_LIQUIDITY,
+    MIN_META_CONFIDENCE,
     MIN_PRICE,
+    MIN_ROBUSTNESS_SCORE,
     MIN_VOLUME,
     REQUIRE_ORDERBOOK,
     WATCH_THRESHOLD,
+    WATCH_LCB_FLOOR,
 )
 from market_profile import enrich_market_profile
 
@@ -39,6 +44,18 @@ _TYPE_FILTER_OVERRIDES = {
 }
 
 _TYPE_SCORING_OVERRIDES = {
+    "winner_multi": {
+        "min_meta_confidence": max(MIN_META_CONFIDENCE, 0.68),
+        "min_graph_consistency": max(MIN_GRAPH_CONSISTENCY, 0.58),
+        "min_robustness_score": max(MIN_ROBUSTNESS_SCORE, 0.64),
+        "watch_lcb_floor": max(WATCH_LCB_FLOOR, -0.010),
+    },
+    "range_multi": {
+        "min_meta_confidence": max(MIN_META_CONFIDENCE, 0.68),
+        "min_graph_consistency": max(MIN_GRAPH_CONSISTENCY, 0.58),
+        "min_robustness_score": max(MIN_ROBUSTNESS_SCORE, 0.64),
+        "watch_lcb_floor": max(WATCH_LCB_FLOOR, -0.010),
+    },
     # Historical backtests showed dated binaries clustering near 0.80
     # confidence and ~1.0% gross edge; relax those gates modestly so they can
     # reach watchlist/value ranking without forcing obviously weak markets.
@@ -47,6 +64,10 @@ _TYPE_SCORING_OVERRIDES = {
         "min_gross_edge": min(MIN_GROSS_EDGE, 0.010),
         "edge_threshold": min(EDGE_THRESHOLD, 0.015),
         "watch_threshold": min(WATCH_THRESHOLD, 0.009),
+        "min_meta_confidence": min(MIN_META_CONFIDENCE, 0.60),
+        "min_graph_consistency": min(MIN_GRAPH_CONSISTENCY, 0.50),
+        "min_robustness_score": min(MIN_ROBUSTNESS_SCORE, 0.58),
+        "watch_lcb_floor": max(WATCH_LCB_FLOOR, -0.015),
     },
     # Near-term binaries still need edge discipline, but confidence can be a
     # bit lower because their resolution path is shorter and cleaner.
@@ -54,6 +75,16 @@ _TYPE_SCORING_OVERRIDES = {
         "min_confidence": min(MIN_CONFIDENCE, 0.86),
         "min_gross_edge": min(MIN_GROSS_EDGE, 0.015),
         "watch_threshold": min(WATCH_THRESHOLD, 0.010),
+        "min_meta_confidence": min(MIN_META_CONFIDENCE, 0.62),
+        "min_graph_consistency": min(MIN_GRAPH_CONSISTENCY, 0.52),
+        "min_robustness_score": min(MIN_ROBUSTNESS_SCORE, 0.60),
+        "watch_lcb_floor": max(WATCH_LCB_FLOOR, -0.012),
+    },
+    "price_target": {
+        "min_meta_confidence": max(MIN_META_CONFIDENCE, 0.66),
+        "min_graph_consistency": max(MIN_GRAPH_CONSISTENCY, 0.56),
+        "min_robustness_score": max(MIN_ROBUSTNESS_SCORE, 0.63),
+        "watch_lcb_floor": max(WATCH_LCB_FLOOR, -0.012),
     },
 }
 
@@ -82,6 +113,11 @@ def scoring_policy_for_market_type(market_type):
         "min_gross_edge": MIN_GROSS_EDGE,
         "edge_threshold": EDGE_THRESHOLD,
         "watch_threshold": WATCH_THRESHOLD,
+        "min_meta_confidence": MIN_META_CONFIDENCE,
+        "min_graph_consistency": MIN_GRAPH_CONSISTENCY,
+        "min_robustness_score": MIN_ROBUSTNESS_SCORE,
+        "min_lcb_edge": MIN_LCB_EDGE,
+        "watch_lcb_floor": WATCH_LCB_FLOOR,
     }
     policy.update(_TYPE_SCORING_OVERRIDES.get(market_type, {}))
     return policy
@@ -92,12 +128,14 @@ def scoring_policy_for_market(market):
     return scoring_policy_for_market_type(profile["market_type"])
 
 
-def signal_bucket(net_edge, policy):
+def signal_bucket(net_edge, policy, net_edge_lcb=None):
     if net_edge is None:
         return None
-    if net_edge > policy["edge_threshold"]:
+    if net_edge_lcb is not None and net_edge_lcb > policy["min_lcb_edge"] and net_edge > policy["edge_threshold"]:
         return "value"
-    if net_edge > policy["watch_threshold"]:
+    if net_edge > policy["watch_threshold"] and (
+        net_edge_lcb is None or net_edge_lcb > policy["watch_lcb_floor"]
+    ):
         return "watch"
     return None
 
