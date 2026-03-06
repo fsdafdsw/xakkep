@@ -1,5 +1,6 @@
 
 import os
+from pathlib import Path
 
 GAMMA_MARKETS_API = os.getenv("GAMMA_MARKETS_API", "https://gamma-api.polymarket.com/markets")
 
@@ -55,3 +56,5 @@ BOT_BUILD_ID = (
 BOT_BUILD_ID = BOT_BUILD_ID[:7] if BOT_BUILD_ID else "unknown"
 
 BOT_SOURCE = os.getenv("BOT_SOURCE", "unknown")
+
+REPORTS_DIR = Path(os.getenv("REPORTS_DIR", "reports"))

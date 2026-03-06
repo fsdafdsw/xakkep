@@ -32,3 +32,11 @@ jobs:
           BOT_BUILD_ID: ${{ github.sha }}
           BOT_SOURCE: ${{ github.repository }}/${{ github.ref_name }}/run-${{ github.run_id }}
         run: python main.py
+
+      - name: Upload reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polymarket-edge-bot-report-${{ github.run_id }}
+          path: polymarket_edge_bot_realprice/reports
+          if-no-files-found: ignore

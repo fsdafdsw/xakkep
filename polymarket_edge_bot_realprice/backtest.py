@@ -1,6 +1,7 @@
 import argparse
 import heapq
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -601,6 +602,7 @@ def parse_args():
     parser.add_argument("--max-candidate-markets", type=int, default=1500)
     parser.add_argument("--max-history-requests", type=int, default=1200)
     parser.add_argument("--initial-bankroll", type=float, default=10.0)
+    parser.add_argument("--json-output", default=None, help="Write machine-readable summary to a JSON file.")
     parser.add_argument(
         "--use-liquidity-filter",
         action="store_true",
@@ -668,15 +670,79 @@ def main():
     print(reasons)
 
     top = sorted(summary["executed"], key=lambda x: x[0].net_edge, reverse=True)[:5]
+    top_payload = []
     if top:
         print("\nTop executed signals by net_edge:")
         for c, outlay in top:
             event_link = f"https://polymarket.com/event/{c.event_slug}?tid={c.token_id}"
+            top_payload.append(
+                {
+                    "question": c.question,
+                    "event_slug": c.event_slug,
+                    "token_id": c.token_id,
+                    "entry_ts": c.entry_ts,
+                    "entry_utc": _to_utc_str(c.entry_ts),
+                    "entry": c.entry,
+                    "fair": c.fair,
+                    "gross_edge": c.gross_edge,
+                    "net_edge": c.net_edge,
+                    "confidence": c.confidence,
+                    "outlay_usd": outlay,
+                    "resolved_outcome": c.resolved_outcome,
+                    "link": event_link,
+                }
+            )
             print(
                 f"- {_to_utc_str(c.entry_ts)} | edge={c.net_edge:.3f} | "
                 f"entry={c.entry:.3f} fair={c.fair:.3f} outlay=${outlay:.2f}\n"
                 f"  {c.question}\n  {event_link}"
             )
+
+    if args.json_output:
+        payload = {
+            "train_or_test_period": {
+                "start_date": args.start_date,
+                "end_date": args.end_date,
+            },
+            "parameters": {
+                "entry_hours_before_close": args.entry_hours_before_close,
+                "history_window_days": args.history_window_days,
+                "history_fidelity": args.history_fidelity,
+                "start_offset": args.start_offset,
+                "page_size": args.page_size,
+                "lookback_events": args.lookback_events,
+                "max_events_fetch": args.max_events_fetch,
+                "max_candidate_markets": args.max_candidate_markets,
+                "max_history_requests": args.max_history_requests,
+                "initial_bankroll": args.initial_bankroll,
+                "use_liquidity_filter": args.use_liquidity_filter,
+                "env_overrides": {
+                    "MIN_CONFIDENCE": os.getenv("MIN_CONFIDENCE"),
+                    "MIN_GROSS_EDGE": os.getenv("MIN_GROSS_EDGE"),
+                    "EDGE_THRESHOLD": os.getenv("EDGE_THRESHOLD"),
+                    "WATCH_THRESHOLD": os.getenv("WATCH_THRESHOLD"),
+                    "MODEL_ADJUSTMENT_SCALE": os.getenv("MODEL_ADJUSTMENT_SCALE"),
+                    "MAX_SIGNALS_PER_EVENT": os.getenv("MAX_SIGNALS_PER_EVENT"),
+                },
+            },
+            "summary": {
+                "final_bankroll": summary["final_bankroll"],
+                "roi": summary["roi"],
+                "total_trades": summary["total_trades"],
+                "winning_trades": summary["winning_trades"],
+                "win_rate": summary["win_rate"],
+                "realized_pnl": summary["realized_pnl"],
+                "max_drawdown": summary["max_drawdown"],
+                "skipped_no_cash": summary["skipped_no_cash"],
+                "skipped_exposure": summary["skipped_exposure"],
+                "candidate_count": len(candidates),
+            },
+            "rejects": rejects,
+            "drop_reasons": reasons,
+            "top_executed": top_payload,
+        }
+        with open(args.json_output, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, ensure_ascii=True)
 
 
 if __name__ == "__main__":

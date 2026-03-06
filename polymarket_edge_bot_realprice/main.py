@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -144,6 +145,18 @@ def _format_signal(rank, candidate):
         f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
         f"confidence={candidate['confidence']:.2f} stake=${candidate['stake_usd']:.2f}"
     )
+
+
+def _write_report_artifacts(report_payload):
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_path = REPORTS_DIR / f"scan_{ts}.json"
+    latest_path = REPORTS_DIR / "latest_scan.json"
+
+    with run_path.open("w", encoding="utf-8") as fh:
+        json.dump(report_payload, fh, indent=2, ensure_ascii=True)
+    with latest_path.open("w", encoding="utf-8") as fh:
+        json.dump(report_payload, fh, indent=2, ensure_ascii=True)
 
 
 def run():
@@ -307,6 +320,28 @@ Risk params:
 bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
 """
 
+    report_payload = {
+        "generated_at_utc": utc_now,
+        "build": BOT_BUILD_ID,
+        "source": BOT_SOURCE,
+        "scanned": len(markets),
+        "passed_base_filters": len(accepted),
+        "price_coverage": coverage["price_available"],
+        "orderbook_coverage": coverage["book_available"],
+        "value_bets": value_bets,
+        "near_misses": watchlist,
+        "rejects": rejects,
+        "skipped_by_exposure_cap": skipped_by_exposure,
+        "risk_params": {
+            "bankroll_usd": BANKROLL_USD,
+            "kelly_fraction": KELLY_FRACTION,
+            "max_bet_usd": MAX_BET_USD,
+            "max_total_exposure_pct": MAX_TOTAL_EXPOSURE_PCT,
+            "max_signals_per_event": MAX_SIGNALS_PER_EVENT,
+        },
+        "report_text": report,
+    }
+    _write_report_artifacts(report_payload)
     send_message(report)
 
 
