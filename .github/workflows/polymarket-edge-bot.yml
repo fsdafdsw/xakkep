@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: "Upload JSON reports as GitHub artifact"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   run:
@@ -34,9 +40,11 @@ jobs:
         run: python main.py
 
       - name: Upload reports artifact
-        if: always()
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload_artifacts }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: polymarket-edge-bot-report-${{ github.run_id }}
           path: polymarket_edge_bot_realprice/reports
           if-no-files-found: ignore
+          retention-days: 1
