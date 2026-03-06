@@ -190,11 +190,14 @@ def _build_candidate(item, score_policy):
         net_edge_lcb = item["net_edge"]
 
     confidence = item["metrics"].get("confidence", 0.5)
+    outcomes = item["market"].get("outcomes") or []
     candidate = {
         "event_key": item["event_key"],
         "question": item["market"].get("question"),
+        "event_title": item["market"].get("event_title"),
         "market_type": item["metrics"].get("market_type") or item["market"].get("market_type"),
         "category_group": item["metrics"].get("category_group") or item["market"].get("category_group"),
+        "outcomes": outcomes,
         "selected_outcome": item["market"].get("selected_outcome"),
         "selected_outcome_index": item["market"].get("selected_outcome_index"),
         "link": _market_link(item["market"]),
@@ -247,24 +250,41 @@ def _build_candidate(item, score_policy):
     return candidate
 
 
+def _display_outcomes(candidate):
+    outcomes = [str(outcome).strip() for outcome in (candidate.get("outcomes") or []) if str(outcome).strip()]
+    if not outcomes:
+        return None
+    if len(outcomes) > 6:
+        return None
+    return " | ".join(outcomes)
+
+
+def _header_lines(rank, candidate):
+    market_label = candidate.get("event_title") or candidate.get("question")
+    recommendation = candidate.get("selected_outcome") or f"Outcome #{(candidate.get('selected_outcome_index') or 0) + 1}"
+    lines = [
+        f"{rank}. {market_label}",
+        f"Recommendation: BUY '{recommendation}' (outcome #{(candidate.get('selected_outcome_index') or 0) + 1})",
+    ]
+    if candidate.get("event_title") and candidate.get("event_title") != candidate.get("question"):
+        lines.append(f"Market: {candidate['question']}")
+    available_outcomes = _display_outcomes(candidate)
+    if available_outcomes:
+        lines.append(f"Outcomes: {available_outcomes}")
+    lines.append(f"Link: {candidate['link']}")
+    return lines
+
+
 def _format_signal(rank, candidate):
-    outcome_text = candidate.get("selected_outcome") or "unknown"
-    outcome_num = (candidate.get("selected_outcome_index") or 0) + 1
     odds_bits = ""
     if candidate.get("odds_implied_probability") is not None:
-        odds_bits = (
-            f" odds={candidate['odds_implied_probability']:.3f}"
-            f" books={candidate.get('odds_bookmaker_count', 0)}"
-        )
-    return (
-        f"{rank}. {candidate['question']}\n"
-        f"BET: BUY {outcome_text} (outcome #{outcome_num})\n"
-        f"{candidate['link']}\n"
-        f"entry={candidate['entry']:.3f} fair={candidate['fair']:.3f} "
-        f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
-        f"confidence={candidate['confidence']:.2f}{odds_bits} "
-        f"stake=${candidate['stake_usd']:.2f}"
+        odds_bits = f" | odds={candidate['odds_implied_probability']:.3f} | books={candidate.get('odds_bookmaker_count', 0)}"
+    lines = _header_lines(rank, candidate)
+    lines.append(
+        f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
     )
+    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{odds_bits}")
+    return "\n".join(lines)
 
 
 def _simple_signal_bucket(net_edge, policy):
@@ -304,17 +324,14 @@ def _record_rejected(rejected_candidates, candidate, reason):
 
 
 def _format_rejected(rank, candidate):
-    outcome_text = candidate.get("selected_outcome") or "unknown"
-    outcome_num = (candidate.get("selected_outcome_index") or 0) + 1
-    return (
-        f"{rank}. {candidate['question']}\n"
-        f"BET: BUY {outcome_text} (outcome #{outcome_num})\n"
-        f"{candidate['link']}\n"
-        f"blocked_by={candidate['rejection_reason']} shortfall={candidate['diagnostic_shortfall']:.3f}\n"
-        f"entry={candidate['entry']:.3f} fair={candidate['fair']:.3f} "
-        f"gross_edge={candidate['gross_edge']:.3f} net_edge={candidate['net_edge']:.3f}\n"
-        f"confidence={candidate['confidence']:.2f} stake=${candidate['stake_usd']:.2f}"
+    reason_label = str(candidate["rejection_reason"]).replace("_", " ")
+    lines = _header_lines(rank, candidate)
+    lines.append(f"Blocked by {reason_label} | Shortfall {candidate['diagnostic_shortfall']:.3f}")
+    lines.append(
+        f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
     )
+    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}")
+    return "\n".join(lines)
 
 
 def _write_report_artifacts(report_payload):
@@ -531,12 +548,11 @@ build={BOT_BUILD_ID} | format=v3
 source={BOT_SOURCE}
 mode={live_mode}
 
-Scanned: {len(markets)}
-Passed base filters: {len(accepted)}
-Price coverage: {coverage['price_available']}/{len(markets)}
-Orderbook coverage: {coverage['book_available']}/{len(markets)}
+Scan stats
+Scanned: {len(markets)} | Passed base filters: {len(accepted)}
+Price coverage: {coverage['price_available']}/{len(markets)} | Orderbook coverage: {coverage['book_available']}/{len(markets)}
 
-Top value bets
+Top recommendations
 
 {signals}
 
@@ -544,11 +560,11 @@ Top value bets
 
 {near}
 
-Reject reasons:
+Reject reasons
 {rejects}
 Skipped by exposure cap: {skipped_by_exposure}
 
-Risk params:
+Risk params
 bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
 gates: confidence>={MIN_CONFIDENCE:.2f} | gross_edge>={MIN_GROSS_EDGE:.3f} | edge>{EDGE_THRESHOLD:.3f} | watch>{WATCH_THRESHOLD:.3f}
 """

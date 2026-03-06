@@ -208,6 +208,7 @@ def _normalize_market(raw):
         or 0.0,
         "liquidity": _safe_float(raw.get("liquidity")) or 0.0,
         "outcome_count": max(len(outcomes), len(prices), len(token_ids)),
+        "outcomes": outcomes,
         "selected_outcome_index": selected_idx,
         "selected_outcome": selected_outcome,
         "selected_price": selected_price,
