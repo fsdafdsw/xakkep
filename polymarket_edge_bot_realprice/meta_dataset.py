@@ -197,6 +197,8 @@ def build_meta_row(snapshot):
         "source_snapshot_path": snapshot.get("_source_path"),
         "period_start_date": snapshot.get("period_start_date"),
         "period_end_date": snapshot.get("period_end_date"),
+        "entry_ts": snapshot.get("entry_ts"),
+        "settle_ts": snapshot.get("settle_ts"),
         "entry_utc": snapshot.get("entry_utc"),
         "settle_utc": snapshot.get("settle_utc"),
         "entry_hour_utc": timing["entry_hour_utc"],
