@@ -52,6 +52,7 @@ def resolve_dataset_output(path_or_dir, start_date, end_date):
 def build_snapshot_row(candidate, decision, context):
     model = getattr(candidate, "model", {}) or {}
     external_components = model.get("external_components") or {}
+    domain_components = ((external_components.get("domain") or {}).get("components") or {})
     relation_metrics = external_components.get("relation_metrics") or {}
     relation_residual = external_components.get("relation_residual") or {}
     resolution_metadata = external_components.get("resolution_metadata") or {}
@@ -103,6 +104,8 @@ def build_snapshot_row(candidate, decision, context):
         "domain_name": model.get("domain_name"),
         "domain_signal": model.get("domain_signal"),
         "domain_confidence": model.get("domain_confidence"),
+        "domain_action_family": domain_components.get("action_family"),
+        "repricing_potential": domain_components.get("repricing_potential"),
         "semantic_family": resolution_metadata.get("family"),
         "semantic_confidence": resolution_metadata.get("confidence"),
         "relation_degree": relation_metrics.get("relation_degree"),
