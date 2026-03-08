@@ -242,6 +242,8 @@ def _build_candidate(item, score_policy):
         "domain_name": item["metrics"].get("domain_name"),
         "domain_signal": item["metrics"].get("domain_signal"),
         "domain_confidence": item["metrics"].get("domain_confidence"),
+        "domain_action_family": domain_components.get("action_family"),
+        "repricing_potential": domain_components.get("repricing_potential"),
         "odds_implied_probability": domain_components.get("implied_probability"),
         "odds_bookmaker_count": domain_components.get("bookmaker_count"),
         "relation_degree": relation_metrics.get("relation_degree", 0),
@@ -328,6 +330,11 @@ def _format_signal(rank, candidate):
     meta_bits = ""
     if candidate.get("meta_trade_prob") is not None:
         meta_bits = f" | meta_p={candidate['meta_trade_prob']:.2f}"
+    theme_bits = f"Theme {candidate.get('domain_name') or 'neutral'}"
+    if candidate.get("domain_action_family"):
+        theme_bits += f" | action={candidate['domain_action_family']}"
+    if candidate.get("repricing_potential") is not None:
+        theme_bits += f" | repricing={candidate['repricing_potential']:.2f}"
     lines = _header_lines(rank, candidate)
     lines.append(
         f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
@@ -335,6 +342,7 @@ def _format_signal(rank, candidate):
     relation_bits = ""
     if candidate.get("relation_degree"):
         relation_bits = f" | relations={candidate['relation_degree']}"
+    lines.append(theme_bits)
     lines.append(
         f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{odds_bits}{relation_bits}"
     )
@@ -386,12 +394,18 @@ def _format_rejected(rank, candidate):
     lines.append(
         f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
     )
+    theme_bits = f"Theme {candidate.get('domain_name') or 'neutral'}"
+    if candidate.get("domain_action_family"):
+        theme_bits += f" | action={candidate['domain_action_family']}"
+    if candidate.get("repricing_potential") is not None:
+        theme_bits += f" | repricing={candidate['repricing_potential']:.2f}"
     relation_bits = ""
     if candidate.get("relation_degree"):
         relation_bits = f" | relations={candidate['relation_degree']}"
     meta_bits = ""
     if candidate.get("meta_trade_prob") is not None:
         meta_bits = f" | meta_p={candidate['meta_trade_prob']:.2f}"
+    lines.append(theme_bits)
     lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{relation_bits}")
     return "\n".join(lines)
 
@@ -609,6 +623,7 @@ def run():
     diagnostic_candidates = sorted(
         rejected_candidates,
         key=lambda x: (
+            -(x.get("repricing_potential") or 0.0),
             x["diagnostic_shortfall"],
             -x["net_edge"],
             -x["gross_edge"],

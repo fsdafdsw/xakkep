@@ -32,6 +32,60 @@ _DECISIVE_SPORT_KEYWORDS = (
     "mvp",
 )
 _TEAM_SPLIT_PATTERNS = (" vs ", " v ", " @ ", " at ")
+_GEOPOLITICAL_KEYWORDS = (
+    "china",
+    "hong kong",
+    "taiwan",
+    "russia",
+    "ukraine",
+    "iran",
+    "israel",
+    "gaza",
+    "nato",
+    "sanction",
+    "tariff",
+    "hostage",
+    "prisoner",
+    "detained",
+    "released",
+    "release",
+    "ceasefire",
+    "truce",
+    "summit",
+    "jimmy lai",
+)
+_RELEASE_ACTION_KEYWORDS = (
+    "released",
+    "release",
+    "freed",
+    "free",
+    "pardon",
+    "pardoned",
+    "hostage",
+    "prisoner",
+    "detained",
+)
+_DIPLOMACY_ACTION_KEYWORDS = (
+    "ceasefire",
+    "truce",
+    "talks",
+    "deal",
+    "summit",
+    "visit",
+    "meeting",
+    "sanction",
+    "tariff",
+)
+_REGIME_ACTION_KEYWORDS = (
+    "resign",
+    "resignation",
+    "step down",
+    "ousted",
+    "removed",
+    "out by",
+    "removed from office",
+)
+_HARD_STATE_KEYWORDS = ("china", "hong kong", "russia", "iran", "north korea")
 
 
 def _clamp(value, low=0.0, high=1.0):
@@ -258,12 +312,118 @@ def _dated_binary_prior(market, question_text):
     }
 
 
+def _geopolitical_repricing_predictor(market, question_text):
+    if market.get("market_type") not in {"dated_binary", "near_term_binary"}:
+        return None
+
+    context_text = normalize_text(
+        question_text,
+        market.get("event_title"),
+        market.get("event_description"),
+        market.get("event_category"),
+        market.get("resolution_source"),
+        market.get("category_group"),
+    )
+    if not contains_any(context_text, _GEOPOLITICAL_KEYWORDS):
+        return None
+
+    price = float(market.get("ref_price") or 0.5)
+    hours_to_close = float(market.get("hours_to_close") or 0.0)
+    days_to_close = max(0.0, hours_to_close / 24.0)
+    spread = float(market.get("spread") or 0.0)
+    liquidity = float(market.get("liquidity") or 0.0)
+    volume24h = float(market.get("volume24h") or 0.0)
+    has_date = any(token in context_text for token in (" by ", " before ", " on ", " june ", " july ", " august ", " september ", " october ", " november ", " december ", " january ", " february ", " march ", " april ", " may ", " 2026", " 2027", " 2028"))
+    has_source = bool(market.get("resolution_source"))
+    hard_state = contains_any(context_text, _HARD_STATE_KEYWORDS)
+
+    action_family = "generic_geo"
+    action_bonus = 0.0
+    if contains_any(context_text, _RELEASE_ACTION_KEYWORDS):
+        action_family = "release"
+        action_bonus += 0.05
+    elif contains_any(context_text, _DIPLOMACY_ACTION_KEYWORDS):
+        action_family = "diplomacy"
+        action_bonus += 0.04
+    elif contains_any(context_text, _REGIME_ACTION_KEYWORDS):
+        action_family = "regime_shift"
+        action_bonus += 0.03
+
+    deadline_bonus = 0.05 if has_date else 0.0
+    source_bonus = 0.04 if has_source else 0.0
+
+    repricing_potential = 0.46
+    if 0.03 <= price <= 0.18:
+        repricing_potential += 0.18
+    elif 0.18 < price <= 0.38:
+        repricing_potential += 0.10
+    elif price < 0.03:
+        repricing_potential += 0.06
+    elif price > 0.65:
+        repricing_potential -= 0.08
+
+    if 7.0 <= days_to_close <= 150.0:
+        repricing_potential += 0.12
+    elif 2.0 <= days_to_close < 7.0:
+        repricing_potential += 0.05
+    elif days_to_close > 180.0:
+        repricing_potential -= 0.06
+
+    repricing_potential += action_bonus * 1.4
+    repricing_potential += deadline_bonus
+    repricing_potential += source_bonus
+    repricing_potential -= 0.03 if spread > 0.05 else 0.0
+
+    final_probability_penalty = 0.03 if hard_state and action_family in {"release", "regime_shift"} else 0.0
+    price_shape = 0.0
+    if 0.04 <= price <= 0.16:
+        price_shape += 0.05
+    elif 0.16 < price <= 0.32:
+        price_shape += 0.03
+    elif price > 0.55:
+        price_shape -= 0.05
+
+    signal = 0.50 + action_bonus + deadline_bonus + source_bonus + price_shape - final_probability_penalty
+
+    confidence = 0.56
+    confidence += 0.07 if has_date else 0.0
+    confidence += 0.06 if has_source else 0.0
+    confidence += min(0.06, volume24h / 4000.0)
+    confidence += min(0.05, liquidity / 6000.0)
+    confidence -= 0.05 if spread > 0.05 else 0.0
+    confidence += 0.03 if 5.0 <= days_to_close <= 120.0 else 0.0
+
+    return {
+        "name": "geopolitical_repricing",
+        "signal": _clamp(signal),
+        "confidence": _clamp(confidence),
+        "components": {
+            "action_family": action_family,
+            "repricing_potential": _clamp(repricing_potential),
+            "days_to_close": days_to_close,
+            "has_date_deadline": has_date,
+            "has_resolution_source": has_source,
+            "hard_state": hard_state,
+            "action_bonus": action_bonus,
+            "deadline_bonus": deadline_bonus,
+            "source_bonus": source_bonus,
+            "final_probability_penalty": final_probability_penalty,
+            "price_shape": price_shape,
+            "price": price,
+            "spread": spread,
+            "liquidity": liquidity,
+            "volume24h": volume24h,
+        },
+    }
+
+
 def compute_domain_predictor(market):
     question_text = normalize_text(market.get("question"))
 
     for builder in (
         _sports_odds_feed_predictor,
         _sports_match_predictor,
+        _geopolitical_repricing_predictor,
         _intraday_noise_predictor,
         _dated_binary_prior,
     ):
