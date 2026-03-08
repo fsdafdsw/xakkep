@@ -410,6 +410,61 @@ def _format_rejected(rank, candidate):
     return "\n".join(lines)
 
 
+def _is_geopolitical_radar_candidate(candidate):
+    return (
+        candidate.get("domain_name") == "geopolitical_repricing"
+        and (candidate.get("repricing_potential") or 0.0) >= MIN_GEOPOLITICAL_REPRICING
+    )
+
+
+def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, excluded_links):
+    merged = []
+    seen = set()
+    for source_name, rows in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in rows:
+            link = row.get("link")
+            if not link or link in seen or link in excluded_links:
+                continue
+            if not _is_geopolitical_radar_candidate(row):
+                continue
+            item = dict(row)
+            item["radar_source"] = source_name
+            merged.append(item)
+            seen.add(link)
+
+    merged.sort(
+        key=lambda x: (
+            -(x.get("repricing_potential") or 0.0),
+            -(x.get("confidence") or 0.0),
+            -(x.get("net_edge") or -999.0),
+            x.get("diagnostic_shortfall") or 0.0,
+        )
+    )
+    return merged[:MAX_GEOPOLITICAL_RADAR]
+
+
+def _format_geopolitical_radar(rank, candidate):
+    lines = _header_lines(rank, candidate)
+    lines.append(
+        f"Radar repricing {candidate.get('repricing_potential', 0.0):.2f} | Theme {candidate.get('domain_name') or 'neutral'} | action={candidate.get('domain_action_family') or 'generic'}"
+    )
+    lines.append(
+        f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
+    )
+    status_bits = [f"Confidence {candidate['confidence']:.2f}"]
+    if candidate.get("rejection_reason"):
+        status_bits.append(f"blocked_by={candidate['rejection_reason']}")
+        status_bits.append(f"shortfall={candidate.get('diagnostic_shortfall', 0.0):.3f}")
+    else:
+        status_bits.append(f"status={candidate.get('radar_source', 'candidate')}")
+    lines.append(" | ".join(status_bits))
+    return "\n".join(lines)
+
+
 def _write_report_artifacts(report_payload):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -630,7 +685,6 @@ def run():
             -x["confidence"],
         ),
     )[:MAX_DIAGNOSTIC_CANDIDATES]
-
     signals = (
         "\n\n".join(_format_signal(i + 1, v) for i, v in enumerate(value_bets))
         if value_bets
@@ -640,6 +694,14 @@ def run():
     near_title = "Near misses" if watchlist else "Near misses / diagnostics"
     near_formatter = _format_signal if watchlist else _format_rejected
     near = "\n\n".join(near_formatter(i + 1, w) for i, w in enumerate(near_candidates)) if near_candidates else "none"
+    displayed_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
+    displayed_links.update(candidate.get("link") for candidate in near_candidates if candidate.get("link"))
+    geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
+    radar_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(geopolitical_radar))
+        if geopolitical_radar
+        else "none"
+    )
 
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     live_mode = "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline"
@@ -655,6 +717,10 @@ Price coverage: {coverage['price_available']}/{len(markets)} | Orderbook coverag
 Top recommendations
 
 {signals}
+
+Geopolitical Repricing Radar
+
+{radar_text}
 
 {near_title}
 
@@ -680,6 +746,7 @@ meta_selector: enabled={USE_META_MODEL_SELECTOR} | min_prob={MIN_META_TRADE_PROB
         "price_coverage": coverage["price_available"],
         "orderbook_coverage": coverage["book_available"],
         "value_bets": value_bets,
+        "geopolitical_radar": geopolitical_radar,
         "near_misses": near_candidates,
         "diagnostic_candidates": diagnostic_candidates,
         "rejects": rejects,
@@ -692,6 +759,8 @@ meta_selector: enabled={USE_META_MODEL_SELECTOR} | min_prob={MIN_META_TRADE_PROB
             "max_signals_per_event": MAX_SIGNALS_PER_EVENT,
             "live_use_research_gates": LIVE_USE_RESEARCH_GATES,
             "max_diagnostic_candidates": MAX_DIAGNOSTIC_CANDIDATES,
+            "max_geopolitical_radar": MAX_GEOPOLITICAL_RADAR,
+            "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
             "use_meta_model_selector": USE_META_MODEL_SELECTOR,
             "min_meta_trade_prob": MIN_META_TRADE_PROB,
             "meta_model_artifact_path": META_MODEL_ARTIFACT_PATH,
