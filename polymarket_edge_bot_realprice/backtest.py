@@ -596,6 +596,7 @@ def build_candidates(
         "not_binary": 0,
         "not_resolved": 0,
         "missing_history": 0,
+        "history_request_error": 0,
         "no_entry_price": 0,
     }
     diagnostics = {
@@ -659,7 +660,11 @@ def build_candidates(
             hist_start_ts = entry_ts - (history_window_days * 24 * 3600)
             history_requests += 1
             diagnostics["stage_counts"]["history_requests"] = history_requests
-            history = fetch_price_history(token_id, hist_start_ts, entry_ts, fidelity=fidelity)
+            try:
+                history = fetch_price_history(token_id, hist_start_ts, entry_ts, fidelity=fidelity)
+            except RuntimeError:
+                reasons["history_request_error"] += 1
+                continue
             if not history:
                 reasons["missing_history"] += 1
                 continue

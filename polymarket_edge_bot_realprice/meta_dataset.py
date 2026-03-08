@@ -37,7 +37,7 @@ def _expand_inputs(inputs):
     for item in inputs:
         path = Path(item)
         if path.is_dir():
-            paths.extend(sorted(candidate for candidate in path.rglob("*.jsonl") if candidate.is_file()))
+            paths.extend(sorted(candidate for candidate in path.rglob("snapshots_*.jsonl") if candidate.is_file()))
         elif path.is_file():
             paths.append(path)
 

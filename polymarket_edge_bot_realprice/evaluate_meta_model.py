@@ -233,6 +233,96 @@ def summarize_walkforward(folds_payload):
     }
 
 
+def _label_counts(rows, label_field):
+    counts = {}
+    for row in rows:
+        label = row.get(label_field)
+        key = str(int(float(label))) if label not in (None, "") else "None"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _evaluate_rows(rows, *, label_field, thresholds, train_fraction, walkforward_folds, min_train_rows, min_predicted, bin_count, smoothing, min_bucket_rows):
+    train_rows, test_rows = build_holdout(rows, train_fraction)
+    holdout = evaluate_split(
+        train_rows,
+        test_rows,
+        label_field=label_field,
+        thresholds=thresholds,
+        min_predicted=min_predicted,
+        bin_count=bin_count,
+        smoothing=smoothing,
+        min_bucket_rows=min_bucket_rows,
+    )
+
+    wf_splits = build_walkforward_splits(rows, folds=walkforward_folds, min_train_rows=min_train_rows)
+    walkforward_folds_payload = []
+    for train_split, test_split in wf_splits:
+        walkforward_folds_payload.append(
+            evaluate_split(
+                train_split,
+                test_split,
+                label_field=label_field,
+                thresholds=thresholds,
+                min_predicted=min_predicted,
+                bin_count=bin_count,
+                smoothing=smoothing,
+                min_bucket_rows=min_bucket_rows,
+            )
+        )
+
+    return {
+        "row_count": len(rows),
+        "label_counts": _label_counts(rows, label_field),
+        "market_type_counts": _count(rows, "market_type"),
+        "reject_reason_counts": _count(rows, "reject_reason"),
+        "holdout": holdout,
+        "walkforward": {
+            "folds": walkforward_folds_payload,
+            "summary": summarize_walkforward(walkforward_folds_payload),
+        },
+    }
+
+
+def _family_reports(rows, *, label_field, thresholds, train_fraction, walkforward_folds, min_train_rows, min_predicted, bin_count, smoothing, min_bucket_rows):
+    reports = {}
+    minimum_rows = max(min_train_rows + max(4, walkforward_folds), 16)
+
+    family_names = sorted({str(row.get("market_type") or "unknown") for row in rows})
+    for family in family_names:
+        family_rows = [row for row in rows if str(row.get("market_type") or "unknown") == family]
+        label_counts = _label_counts(family_rows, label_field)
+        unique_labels = {key for key, value in label_counts.items() if value > 0 and key != "None"}
+        if len(family_rows) < minimum_rows:
+            reports[family] = {
+                "row_count": len(family_rows),
+                "label_counts": label_counts,
+                "skipped": f"insufficient_rows<{minimum_rows}",
+            }
+            continue
+        if len(unique_labels) < 2:
+            reports[family] = {
+                "row_count": len(family_rows),
+                "label_counts": label_counts,
+                "skipped": "single_label_family",
+            }
+            continue
+        reports[family] = _evaluate_rows(
+            family_rows,
+            label_field=label_field,
+            thresholds=thresholds,
+            train_fraction=train_fraction,
+            walkforward_folds=walkforward_folds,
+            min_train_rows=min_train_rows,
+            min_predicted=min_predicted,
+            bin_count=bin_count,
+            smoothing=smoothing,
+            min_bucket_rows=min_bucket_rows,
+        )
+
+    return reports
+
+
 def default_output_path(dataset_path):
     dataset_name = Path(dataset_path).stem
     return REPORTS_DIR / "research" / f"meta_model_eval_{dataset_name}.json"
@@ -258,52 +348,38 @@ def main():
     args = parse_args()
     rows = _sort_rows(load_jsonl(args.dataset))
     thresholds = [float(item.strip()) for item in args.thresholds.split(",") if item.strip()]
-
-    train_rows, test_rows = build_holdout(rows, args.train_fraction)
-    holdout = evaluate_split(
-        train_rows,
-        test_rows,
+    report = _evaluate_rows(
+        rows,
         label_field=args.label_field,
         thresholds=thresholds,
+        train_fraction=args.train_fraction,
+        walkforward_folds=args.walkforward_folds,
+        min_train_rows=args.min_train_rows,
+        min_predicted=args.min_predicted,
+        bin_count=args.bin_count,
+        smoothing=args.smoothing,
+        min_bucket_rows=args.min_bucket_rows,
+    )
+    report["label_field"] = args.label_field
+    report["families"] = _family_reports(
+        rows,
+        label_field=args.label_field,
+        thresholds=thresholds,
+        train_fraction=args.train_fraction,
+        walkforward_folds=args.walkforward_folds,
+        min_train_rows=args.min_train_rows,
         min_predicted=args.min_predicted,
         bin_count=args.bin_count,
         smoothing=args.smoothing,
         min_bucket_rows=args.min_bucket_rows,
     )
 
-    wf_splits = build_walkforward_splits(rows, folds=args.walkforward_folds, min_train_rows=args.min_train_rows)
-    walkforward_folds = []
-    for train_split, test_split in wf_splits:
-        walkforward_folds.append(
-            evaluate_split(
-                train_split,
-                test_split,
-                label_field=args.label_field,
-                thresholds=thresholds,
-                min_predicted=args.min_predicted,
-                bin_count=args.bin_count,
-                smoothing=args.smoothing,
-                min_bucket_rows=args.min_bucket_rows,
-            )
-        )
-
-    report = {
-        "row_count": len(rows),
-        "label_field": args.label_field,
-        "market_type_counts": _count(rows, "market_type"),
-        "reject_reason_counts": _count(rows, "reject_reason"),
-        "holdout": holdout,
-        "walkforward": {
-            "folds": walkforward_folds,
-            "summary": summarize_walkforward(walkforward_folds),
-        },
-    }
-
     output_path = Path(args.output) if args.output else default_output_path(args.dataset)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, ensure_ascii=True)
 
+    holdout = report["holdout"]
     holdout_test = holdout["test"]
     wf_summary = report["walkforward"]["summary"]
     print(f"Rows loaded: {len(rows)}")
