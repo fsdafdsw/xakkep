@@ -17,11 +17,14 @@ from config import (
     MAX_BET_USD,
     MAX_SIGNALS_PER_EVENT,
     MAX_TOTAL_EXPOSURE_PCT,
+    META_MODEL_ARTIFACT_PATH,
+    MIN_META_TRADE_PROB,
     MODEL_ADJUSTMENT_SCALE,
     REQUEST_BACKOFF_SECONDS,
     REQUEST_RETRIES,
     REQUEST_TIMEOUT_SECONDS,
     TAKER_FEE_BPS,
+    USE_META_MODEL_SELECTOR,
 )
 from diagnostics import distribution_stats
 from entity_normalization import extract_market_entities
@@ -35,6 +38,7 @@ from graph_residuals import annotate_relation_residuals
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from research_dataset import build_snapshot_row, resolve_dataset_output, write_jsonl
+from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
 from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
 from robust_signal import compute_robust_signal
@@ -42,6 +46,18 @@ from strategy import evaluate_market
 
 GAMMA_EVENTS_API = "https://gamma-api.polymarket.com/events"
 CLOB_HISTORY_API = "https://clob.polymarket.com/prices-history"
+_META_MODEL_CACHE = {}
+
+
+def _get_meta_model_artifact():
+    path = (META_MODEL_ARTIFACT_PATH or "").strip()
+    if not path:
+        return None
+    cached = _META_MODEL_CACHE.get(path)
+    if cached is None:
+        cached = load_meta_model(path)
+        _META_MODEL_CACHE[path] = cached
+    return cached
 
 
 def _safe_float(value: Any):
@@ -281,6 +297,8 @@ class Candidate:
     net_edge_lcb: float
     confidence: float
     meta_confidence: float
+    meta_trade_prob: Optional[float]
+    meta_trade_score: Optional[float]
     graph_consistency: float
     robustness_score: float
     resolved_outcome: int
@@ -340,6 +358,8 @@ def _build_rejection_payload(candidate, reason):
         "net_edge_lcb": candidate.net_edge_lcb,
         "confidence": candidate.confidence,
         "meta_confidence": candidate.meta_confidence,
+        "meta_trade_prob": candidate.meta_trade_prob,
+        "meta_trade_score": candidate.meta_trade_score,
         "graph_consistency": candidate.graph_consistency,
         "robustness_score": candidate.robustness_score,
         "domain_name": candidate.model.get("domain_name"),
@@ -507,6 +527,18 @@ def _annotate_candidates_with_graph_and_robust_signal(candidates):
         candidate.model["robust"] = robust
 
 
+def _annotate_candidates_with_meta_model(candidates):
+    artifact = _get_meta_model_artifact()
+    if not artifact:
+        return
+
+    for candidate in candidates:
+        prediction = score_meta_row(build_meta_feature_row(candidate), artifact)
+        candidate.meta_trade_prob = prediction["probability"]
+        candidate.meta_trade_score = prediction["trade_score"]
+        candidate.model["meta_model"] = prediction
+
+
 _STAGE_NAMES = (
     "markets_seen",
     "markets_in_time_window",
@@ -521,6 +553,7 @@ _STAGE_NAMES = (
     "after_confidence",
     "after_gross_edge",
     "after_meta_confidence",
+    "after_meta_model",
     "after_graph_consistency",
     "after_robustness",
     "after_lcb_edge",
@@ -554,6 +587,7 @@ def build_candidates(
         "low_gross_edge": 0,
         "low_net_edge": 0,
         "low_meta_confidence": 0,
+        "low_meta_model_prob": 0,
         "low_graph_consistency": 0,
         "low_robustness": 0,
         "low_lcb_edge": 0,
@@ -779,6 +813,8 @@ def build_candidates(
                 net_edge_lcb=0.0,
                 confidence=metrics.get("confidence", 0.5),
                 meta_confidence=0.0,
+                meta_trade_prob=None,
+                meta_trade_score=None,
                 graph_consistency=0.0,
                 robustness_score=0.0,
                 resolved_outcome=item["resolved_outcome"],
@@ -793,6 +829,7 @@ def build_candidates(
 
     _neutralize_candidates_by_event(selected)
     _annotate_candidates_with_graph_and_robust_signal(selected)
+    _annotate_candidates_with_meta_model(selected)
 
     for candidate in selected:
         decision_map[_candidate_key(candidate)] = {
@@ -854,6 +891,21 @@ def build_candidates(
             market_type=candidate.market_type,
             category_group=candidate.category_group,
         )
+
+        if USE_META_MODEL_SELECTOR and candidate.meta_trade_prob is not None:
+            if candidate.meta_trade_prob < MIN_META_TRADE_PROB:
+                rejects["low_meta_model_prob"] += 1
+                _bump_reject(diagnostics, "low_meta_model_prob", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_meta_model_prob"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_model_prob"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_meta_model",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
 
         if candidate.graph_consistency < score_policy["min_graph_consistency"]:
             rejects["low_graph_consistency"] += 1
@@ -924,7 +976,12 @@ def build_candidates(
 
     filtered = sorted(
         filtered,
-        key=lambda x: (x.net_edge_lcb, x.robustness_score, x.net_edge),
+        key=lambda x: (
+            x.meta_trade_score if x.meta_trade_score is not None else float("-inf"),
+            x.net_edge_lcb,
+            x.robustness_score,
+            x.net_edge,
+        ),
         reverse=True,
     )[:max_markets]
     final_keys = {_candidate_key(candidate) for candidate in filtered}
@@ -954,6 +1011,12 @@ def build_candidates(
         "edge_distributions": {
             "confidence": distribution_stats([candidate.confidence for candidate in selected]),
             "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in selected]),
+            "meta_trade_prob": distribution_stats(
+                [candidate.meta_trade_prob for candidate in selected if candidate.meta_trade_prob is not None]
+            ),
+            "meta_trade_score": distribution_stats(
+                [candidate.meta_trade_score for candidate in selected if candidate.meta_trade_score is not None]
+            ),
             "domain_confidence": distribution_stats(
                 [candidate.model.get("domain_confidence", 0.5) for candidate in selected]
             ),
@@ -1022,6 +1085,12 @@ def build_candidates(
             "count": len(group),
             "confidence": distribution_stats([candidate.confidence for candidate in group]),
             "meta_confidence": distribution_stats([candidate.meta_confidence for candidate in group]),
+            "meta_trade_prob": distribution_stats(
+                [candidate.meta_trade_prob for candidate in group if candidate.meta_trade_prob is not None]
+            ),
+            "meta_trade_score": distribution_stats(
+                [candidate.meta_trade_score for candidate in group if candidate.meta_trade_score is not None]
+            ),
             "domain_confidence": distribution_stats(
                 [candidate.model.get("domain_confidence", 0.5) for candidate in group]
             ),

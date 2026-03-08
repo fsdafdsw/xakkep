@@ -9,6 +9,7 @@ from filter_policy import (
     scoring_policy_for_market,
     signal_bucket,
 )
+from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
 from probability_model import (
     estimated_probability,
     kelly_bet_fraction,
@@ -18,6 +19,9 @@ from robust_signal import compute_robust_signal
 from scanner import fetch_markets
 from strategy import evaluate_market
 from telegram import send_message
+
+
+_META_MODEL_CACHE = {}
 
 
 def _clamp(value, low=0.01, high=0.99):
@@ -42,6 +46,17 @@ def _market_link(market):
             return f"https://polymarket.com/event/{slug}?tid={token_id}"
         return f"https://polymarket.com/event/{slug}"
     return "https://polymarket.com/"
+
+
+def _get_meta_model_artifact():
+    path = (META_MODEL_ARTIFACT_PATH or "").strip()
+    if not path:
+        return None
+    cached = _META_MODEL_CACHE.get(path)
+    if cached is None:
+        cached = load_meta_model(path)
+        _META_MODEL_CACHE[path] = cached
+    return cached
 
 
 def _passes_filters(market, rejects):
@@ -209,6 +224,9 @@ def _build_candidate(item, score_policy):
         "selected_outcome_index": item["market"].get("selected_outcome_index"),
         "link": _market_link(item["market"]),
         "entry": item["entry"],
+        "spread": item["market"].get("spread"),
+        "cost_per_share": (item["entry"] * ((TAKER_FEE_BPS + ESTIMATED_SLIPPAGE_BPS) / 10000.0))
+        + (((item["market"].get("spread") or 0.0) / 2.0) if item["market"].get("spread") is not None else 0.0),
         "fair": item["fair"],
         "fair_lcb": fair_lcb,
         "gross_edge": item["gross_edge"],
@@ -217,6 +235,8 @@ def _build_candidate(item, score_policy):
         "net_edge_lcb": net_edge_lcb,
         "confidence": confidence,
         "meta_confidence": robust.get("meta_confidence", confidence),
+        "meta_trade_prob": None,
+        "meta_trade_score": None,
         "graph_consistency": graph.get("consistency", 1.0),
         "robustness_score": robust.get("robustness_score", confidence),
         "domain_name": item["metrics"].get("domain_name"),
@@ -267,6 +287,12 @@ def _build_candidate(item, score_policy):
             "watch_lcb_floor": score_policy["watch_lcb_floor"],
         },
     }
+    artifact = _get_meta_model_artifact()
+    if artifact:
+        prediction = score_meta_row(build_meta_feature_row(candidate), artifact)
+        candidate["meta_trade_prob"] = prediction["probability"]
+        candidate["meta_trade_score"] = prediction["trade_score"]
+        candidate["model"]["meta_model"] = prediction
     return candidate
 
 
@@ -299,6 +325,9 @@ def _format_signal(rank, candidate):
     odds_bits = ""
     if candidate.get("odds_implied_probability") is not None:
         odds_bits = f" | odds={candidate['odds_implied_probability']:.3f} | books={candidate.get('odds_bookmaker_count', 0)}"
+    meta_bits = ""
+    if candidate.get("meta_trade_prob") is not None:
+        meta_bits = f" | meta_p={candidate['meta_trade_prob']:.2f}"
     lines = _header_lines(rank, candidate)
     lines.append(
         f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
@@ -307,7 +336,7 @@ def _format_signal(rank, candidate):
     if candidate.get("relation_degree"):
         relation_bits = f" | relations={candidate['relation_degree']}"
     lines.append(
-        f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{odds_bits}{relation_bits}"
+        f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{odds_bits}{relation_bits}"
     )
     return "\n".join(lines)
 
@@ -338,6 +367,8 @@ def _rejection_shortfall(reason, candidate):
         return max(0.0, policy["min_robustness_score"] - candidate["robustness_score"])
     if reason == "low_lcb_edge":
         return max(0.0, policy["watch_lcb_floor"] - candidate["net_edge_lcb"])
+    if reason == "low_meta_model_prob":
+        return max(0.0, MIN_META_TRADE_PROB - (candidate.get("meta_trade_prob") or 0.0))
     return 0.0
 
 
@@ -358,7 +389,10 @@ def _format_rejected(rank, candidate):
     relation_bits = ""
     if candidate.get("relation_degree"):
         relation_bits = f" | relations={candidate['relation_degree']}"
-    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{relation_bits}")
+    meta_bits = ""
+    if candidate.get("meta_trade_prob") is not None:
+        meta_bits = f" | meta_p={candidate['meta_trade_prob']:.2f}"
+    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{relation_bits}")
     return "\n".join(lines)
 
 
@@ -393,6 +427,7 @@ def run():
         "low_gross_edge": 0,
         "low_net_edge": 0,
         "low_meta_confidence": 0,
+        "low_meta_model_prob": 0,
         "low_graph_consistency": 0,
         "low_robustness": 0,
         "low_lcb_edge": 0,
@@ -475,10 +510,21 @@ def run():
                 _record_rejected(rejected_candidates, candidate, "low_robustness")
                 continue
 
+            if USE_META_MODEL_SELECTOR and candidate.get("meta_trade_prob") is not None:
+                if candidate["meta_trade_prob"] < MIN_META_TRADE_PROB:
+                    rejects["low_meta_model_prob"] += 1
+                    _record_rejected(rejected_candidates, candidate, "low_meta_model_prob")
+                    continue
+
             kelly_probability = candidate["fair_lcb"]
             size_multiplier = min(confidence, robustness_score)
         else:
             net_edge_lcb = candidate["net_edge_lcb"]
+            if USE_META_MODEL_SELECTOR and candidate.get("meta_trade_prob") is not None:
+                if candidate["meta_trade_prob"] < MIN_META_TRADE_PROB:
+                    rejects["low_meta_model_prob"] += 1
+                    _record_rejected(rejected_candidates, candidate, "low_meta_model_prob")
+                    continue
             kelly_probability = candidate["fair"]
             size_multiplier = confidence
 
@@ -506,7 +552,12 @@ def run():
 
     value_bets_sorted = sorted(
         value_bets,
-        key=lambda x: (x["net_edge_lcb"], x["robustness_score"], x["net_edge"]),
+        key=lambda x: (
+            x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
+            x["net_edge_lcb"],
+            x["robustness_score"],
+            x["net_edge"],
+        ),
         reverse=True,
     )
     exposure_cap = BANKROLL_USD * MAX_TOTAL_EXPOSURE_PCT
@@ -534,7 +585,12 @@ def run():
 
     watchlist_sorted = sorted(
         watchlist,
-        key=lambda x: (x["net_edge_lcb"], x["robustness_score"], x["net_edge"]),
+        key=lambda x: (
+            x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
+            x["net_edge_lcb"],
+            x["robustness_score"],
+            x["net_edge"],
+        ),
         reverse=True,
     )
     watch_event_usage = defaultdict(int)
@@ -596,6 +652,7 @@ Skipped by exposure cap: {skipped_by_exposure}
 Risk params
 bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
 gates: confidence>={MIN_CONFIDENCE:.2f} | gross_edge>={MIN_GROSS_EDGE:.3f} | edge>{EDGE_THRESHOLD:.3f} | watch>{WATCH_THRESHOLD:.3f}
+meta_selector: enabled={USE_META_MODEL_SELECTOR} | min_prob={MIN_META_TRADE_PROB:.2f} | artifact={'yes' if META_MODEL_ARTIFACT_PATH else 'no'}
 """
 
     report_payload = {
@@ -620,6 +677,9 @@ gates: confidence>={MIN_CONFIDENCE:.2f} | gross_edge>={MIN_GROSS_EDGE:.3f} | edg
             "max_signals_per_event": MAX_SIGNALS_PER_EVENT,
             "live_use_research_gates": LIVE_USE_RESEARCH_GATES,
             "max_diagnostic_candidates": MAX_DIAGNOSTIC_CANDIDATES,
+            "use_meta_model_selector": USE_META_MODEL_SELECTOR,
+            "min_meta_trade_prob": MIN_META_TRADE_PROB,
+            "meta_model_artifact_path": META_MODEL_ARTIFACT_PATH,
         },
         "report_text": report,
     }

@@ -224,6 +224,8 @@ def build_meta_row(snapshot):
         "net_edge_lcb": snapshot.get("net_edge_lcb"),
         "confidence": snapshot.get("confidence"),
         "meta_confidence": snapshot.get("meta_confidence"),
+        "meta_trade_prob": snapshot.get("meta_trade_prob"),
+        "meta_trade_score": snapshot.get("meta_trade_score"),
         "graph_consistency": snapshot.get("graph_consistency"),
         "robustness_score": snapshot.get("robustness_score"),
         "spread": snapshot.get("spread"),

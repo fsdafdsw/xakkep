@@ -88,6 +88,8 @@ def build_snapshot_row(candidate, decision, context):
         "net_edge_lcb": getattr(candidate, "net_edge_lcb", None),
         "confidence": getattr(candidate, "confidence", None),
         "meta_confidence": getattr(candidate, "meta_confidence", None),
+        "meta_trade_prob": getattr(candidate, "meta_trade_prob", None),
+        "meta_trade_score": getattr(candidate, "meta_trade_score", None),
         "graph_consistency": getattr(candidate, "graph_consistency", None),
         "robustness_score": getattr(candidate, "robustness_score", None),
         "resolved_outcome": getattr(candidate, "resolved_outcome", None),
