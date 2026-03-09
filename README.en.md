@@ -2,7 +2,37 @@
 
 Research-first Polymarket bot focused on market scanning, repricing ideas, structural signals, and Telegram delivery.
 
-Russian version: [README.md](/Users/slava/Documents/New%20project/README.md)
+Russian version: [README.md](README.md)
+
+> Live scanning. Repricing radar. Research pipeline. Telegram delivery.
+
+**Built as a practical research-to-live system, not just a market notifier.**
+
+## At a glance
+
+- `Live` — scans markets and sends readable Telegram reports
+- `Research` — includes backtests, repricing backtests, calibration, and dataset export
+- `Geopolitics` — has a dedicated repricing radar for geopolitical narratives
+- `Structure` — uses uncertainty, lower-bound edge logic, and relation-aware signals
+
+## Working now
+
+- scheduled GitHub Actions runs;
+- Telegram signal delivery;
+- historical snapshot backtesting;
+- repricing backtesting on forward price history;
+- targeted geopolitical pool building;
+- geopolitical repricing radar;
+- family-level research tooling;
+- structure-aware and uncertainty-aware scoring.
+
+## Still experimental
+
+- learned meta selector;
+- calibration artifacts in the live decision path;
+- sports odds prior;
+- broader geo coverage for `release / court / hostage / regime shift` setups;
+- any claim of universal profitability across all market families.
 
 ## What it does
 
@@ -73,9 +103,8 @@ python3 repricing_backtest.py --start-date 2026-01-01 --end-date 2026-03-01
 **Vyacheslav Shushurikhin**  
 Professional editor and vibe coder.
 
-I build fast, expressive, research-heavy products at the intersection of writing, analysis, automation, and code. Open to collaborations, new projects, and strong ideas.
+I build fast, expressive, research-heavy products at the intersection of writing, analysis, automation, and code. Open to collaborations, new projects, and strong ideas. If you need someone who can think about product, language, positioning, and code at the same time, we will likely work well together.
 
 ## Contact
 
 - Telegram: [t.me/shushurikhin](https://t.me/shushurikhin)
-

@@ -2,9 +2,42 @@
 
 Исследовательский и сигнальный бот для Polymarket с упором на поиск mispricing, repricing-идей и аккуратную исследовательскую работу перед live-использованием.
 
-English version: [README.en.md](/Users/slava/Documents/New%20project/README.en.md)
+English version: [README.en.md](README.en.md)
+
+> Live scanning. Repricing radar. Research pipeline. Telegram delivery.
+
+**Проект для тех, кто хочет не просто “скрипт”, а живую систему для исследования и отбора рынков.**
 
 Код проекта находится в директории `polymarket_edge_bot_realprice/`.
+
+## Кратко
+
+`Polymarket Edge Bot` — это рабочая research-to-live система:
+
+- `Live` — сканирует рынки и шлёт сигналы в Telegram
+- `Research` — умеет backtest, repricing backtest, calibration и dataset export
+- `Geopolitics` — имеет отдельный repricing radar для геополитических сюжетов
+- `Structure` — использует relation graph, uncertainty и lower-bound edge
+
+## Что уже работает
+
+- регулярный запуск через GitHub Actions;
+- live-отчёты в Telegram;
+- backtest по historical snapshots;
+- repricing backtest по forward price history;
+- targeted geopolitical pool builder;
+- geopolitical repricing radar;
+- family-level research tooling;
+- relation-aware и uncertainty-aware scoring;
+- читабельный Telegram-формат вместо технического лога.
+
+## Что пока экспериментально
+
+- learned meta selector;
+- calibration artifacts в production-контуре;
+- sports odds prior;
+- расширение geo-radar под `release / court / hostage / regime shift`;
+- универсальная прибыльная стратегия для всех market families.
 
 ## Что это за проект
 
@@ -139,7 +172,7 @@ python3 build_geopolitical_pool.py \
 - рабочая архитектура,
 - скорость реализации.
 
-Открыт к новым проектам, коллаборациям и интересным предложениям.
+Открыт к новым проектам, коллаборациям и интересным предложениям. Если вам нужен человек, который умеет одновременно думать про продукт, текст, подачу и код, мне есть что предложить.
 
 ## Связь
 
