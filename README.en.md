@@ -13,6 +13,22 @@ Russian version: [README.md](README.md)
 **Vyacheslav Shushurikhin** — professional editor and vibe coder.  
 Open to new projects and collaborations: [t.me/shushurikhin](https://t.me/shushurikhin)
 
+## TL;DR
+
+- the bot scans Polymarket markets and sends signals to Telegram;
+- the repo includes a dedicated research layer with backtests and repricing backtests;
+- the real strength here is not “magic alpha”, but a well-structured workflow for testing market ideas.
+
+## Author
+
+| Field | Value |
+| --- | --- |
+| Author | Vyacheslav Shushurikhin |
+| Role | Professional editor and vibe coder |
+| Focus | Writing, automation, analysis, product-minded code |
+| Contact | [t.me/shushurikhin](https://t.me/shushurikhin) |
+| Open for | New projects, collaborations, and strong ideas |
+
 ## Why this repo exists
 
 This repository exists to turn prediction-market ideas into a working workflow:
