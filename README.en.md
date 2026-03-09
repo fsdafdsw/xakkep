@@ -4,9 +4,23 @@ Research-first Polymarket bot focused on market scanning, repricing ideas, struc
 
 Russian version: [README.md](README.md)
 
+`LIVE` `RESEARCH` `GEOPOLITICS` `TELEGRAM` `REPRICING`
+
 > Live scanning. Repricing radar. Research pipeline. Telegram delivery.
 
 **Built as a practical research-to-live system, not just a market notifier.**
+
+**Vyacheslav Shushurikhin** — professional editor and vibe coder.  
+Open to new projects and collaborations: [t.me/shushurikhin](https://t.me/shushurikhin)
+
+## Why this repo exists
+
+This repository exists to turn prediction-market ideas into a working workflow:
+
+- generate hypotheses;
+- test them on data;
+- separate narrative from measurable signal;
+- move the strongest ideas into live reporting and Telegram delivery.
 
 ## At a glance
 

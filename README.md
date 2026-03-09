@@ -4,11 +4,25 @@
 
 English version: [README.en.md](README.en.md)
 
+`LIVE` `RESEARCH` `GEOPOLITICS` `TELEGRAM` `REPRICING`
+
 > Live scanning. Repricing radar. Research pipeline. Telegram delivery.
 
 **Проект для тех, кто хочет не просто “скрипт”, а живую систему для исследования и отбора рынков.**
 
+**Вячеслав Шушурихин** — профессиональный редактор и вайб-кодер.  
+Открыт к новым проектам и предложениям: [t.me/shushurikhin](https://t.me/shushurikhin)
+
 Код проекта находится в директории `polymarket_edge_bot_realprice/`.
+
+## Зачем существует этот репозиторий
+
+Этот проект нужен, чтобы быстро превращать гипотезы о prediction markets в рабочий research pipeline:
+
+- собирать идеи;
+- проверять их на данных;
+- отделять красивую догадку от воспроизводимого сигнала;
+- доводить удачные находки до live-отчёта и Telegram-подачи.
 
 ## Кратко
 
