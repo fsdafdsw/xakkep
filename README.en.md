@@ -19,16 +19,6 @@ Open to new projects and collaborations: [t.me/shushurikhin](https://t.me/shushu
 - the repo includes a dedicated research layer with backtests and repricing backtests;
 - the real strength here is not “magic alpha”, but a well-structured workflow for testing market ideas.
 
-## Author
-
-| Field | Value |
-| --- | --- |
-| Author | Vyacheslav Shushurikhin |
-| Role | Professional editor and vibe coder |
-| Focus | Writing, automation, analysis, product-minded code |
-| Contact | [t.me/shushurikhin](https://t.me/shushurikhin) |
-| Open for | New projects, collaborations, and strong ideas |
-
 ## Why this repo exists
 
 This repository exists to turn prediction-market ideas into a working workflow:
@@ -127,14 +117,3 @@ cd polymarket_edge_bot_realprice
 python3 backtest.py --start-date 2026-02-01 --end-date 2026-03-01
 python3 repricing_backtest.py --start-date 2026-01-01 --end-date 2026-03-01
 ```
-
-## About the author
-
-**Vyacheslav Shushurikhin**  
-Professional editor and vibe coder.
-
-I build fast, expressive, research-heavy products at the intersection of writing, analysis, automation, and code. Open to collaborations, new projects, and strong ideas. If you need someone who can think about product, language, positioning, and code at the same time, we will likely work well together.
-
-## Contact
-
-- Telegram: [t.me/shushurikhin](https://t.me/shushurikhin)
