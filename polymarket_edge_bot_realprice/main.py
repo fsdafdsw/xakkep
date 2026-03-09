@@ -738,7 +738,9 @@ def run():
     )
 
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    day_summary = f"Today: {len(value_bets)} buys | {len(geopolitical_radar)} radar ideas"
     report = f"""Polymarket edge scan - {utc_now}
+{day_summary}
 
 Scan stats
 Scanned: {len(markets)} | Passed base filters: {len(accepted)}
@@ -759,6 +761,7 @@ Geopolitical Repricing Radar
 
     report_payload = {
         "generated_at_utc": utc_now,
+        "day_summary": day_summary,
         "build": BOT_BUILD_ID,
         "source": BOT_SOURCE,
         "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
