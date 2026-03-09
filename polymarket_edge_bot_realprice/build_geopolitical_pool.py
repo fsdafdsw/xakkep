@@ -13,6 +13,16 @@ from geopolitical_context import build_geopolitical_context
 from research_dataset import resolve_dataset_output, write_jsonl
 
 
+def _parse_offset_list(text):
+    values = []
+    for item in str(text or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        values.append(int(item))
+    return values
+
+
 def _filter_events_to_geopolitical(events, min_match_score):
     filtered_events = []
     market_counter = Counter()
@@ -60,11 +70,30 @@ def _filter_events_to_geopolitical(events, min_match_score):
     }
 
 
+def _fetch_events_for_offsets(offsets, max_events_fetch, page_size):
+    combined = []
+    seen_event_ids = set()
+    fetched_meta = []
+    for offset in offsets:
+        print(f"Fetching closed events from offset {offset} (max {max_events_fetch})...")
+        batch = fetch_closed_events(start_offset=offset, max_events=max_events_fetch, page_size=page_size)
+        fetched_meta.append({"offset": offset, "event_count": len(batch)})
+        for event in batch:
+            event_id = str(event.get("id") or "")
+            if event_id and event_id in seen_event_ids:
+                continue
+            if event_id:
+                seen_event_ids.add(event_id)
+            combined.append(event)
+    return combined, fetched_meta
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Build a targeted geopolitical snapshot pool before fetching price history.")
     parser.add_argument("--start-date", default="2026-01-01", help="UTC date, e.g. 2026-01-01")
     parser.add_argument("--end-date", default="2026-03-01", help="UTC date, e.g. 2026-03-01")
     parser.add_argument("--start-offset", type=int, default=None)
+    parser.add_argument("--start-offsets", default="", help="Comma-separated list of offsets to scan and merge.")
     parser.add_argument("--page-size", type=int, default=200)
     parser.add_argument("--lookback-events", type=int, default=50000)
     parser.add_argument("--max-events-fetch", type=int, default=50000)
@@ -85,16 +114,27 @@ def main():
     start_ts = _parse_date_to_ts(args.start_date)
     end_ts = _parse_date_to_ts(args.end_date) + (24 * 3600) - 1
 
-    if args.start_offset is None:
+    offset_list = _parse_offset_list(args.start_offsets)
+    if offset_list:
+        offsets = [max(0, value) for value in offset_list]
+        events, fetched_meta = _fetch_events_for_offsets(
+            offsets=offsets,
+            max_events_fetch=args.max_events_fetch,
+            page_size=args.page_size,
+        )
+        start_offset = offsets[0]
+    elif args.start_offset is None:
         total_closed = find_total_closed_events()
         start_offset = max(0, total_closed - args.lookback_events)
         max_events = min(args.max_events_fetch, total_closed - start_offset)
+        print(f"Fetching closed events from offset {start_offset} (max {max_events})...")
+        events = fetch_closed_events(start_offset=start_offset, max_events=max_events, page_size=args.page_size)
+        fetched_meta = [{"offset": start_offset, "event_count": len(events)}]
     else:
         start_offset = max(0, args.start_offset)
-        max_events = args.max_events_fetch
-
-    print(f"Fetching closed events from offset {start_offset} (max {max_events})...")
-    events = fetch_closed_events(start_offset=start_offset, max_events=max_events, page_size=args.page_size)
+        print(f"Fetching closed events from offset {start_offset} (max {args.max_events_fetch})...")
+        events = fetch_closed_events(start_offset=start_offset, max_events=args.max_events_fetch, page_size=args.page_size)
+        fetched_meta = [{"offset": start_offset, "event_count": len(events)}]
     print(f"Fetched events: {len(events)}")
 
     geo_events, filter_summary = _filter_events_to_geopolitical(events, min_match_score=args.min_match_score)
@@ -123,6 +163,7 @@ def main():
         "period": {"start_date": args.start_date, "end_date": args.end_date},
         "parameters": {
             "start_offset": start_offset,
+            "start_offsets": offset_list,
             "page_size": args.page_size,
             "max_events_fetch": args.max_events_fetch,
             "max_candidate_markets": args.max_candidate_markets,
@@ -134,6 +175,7 @@ def main():
             "use_liquidity_filter": args.use_liquidity_filter,
         },
         "filter_summary": filter_summary,
+        "fetch_summary": fetched_meta,
         "dataset_row_count": len(dataset_rows),
         "final_candidate_count": len(candidates),
         "rejects": rejects,

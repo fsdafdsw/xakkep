@@ -6,6 +6,10 @@ _GEO_KEYWORDS = (
     "china",
     "hong kong",
     "taiwan",
+    "u.s.",
+    "united states",
+    "us-china",
+    "usa",
     "russia",
     "ukraine",
     "iran",
@@ -13,6 +17,11 @@ _GEO_KEYWORDS = (
     "gaza",
     "hamas",
     "hezbollah",
+    "venezuela",
+    "saudi arabia",
+    "syria",
+    "lebanon",
+    "european union",
     "nato",
     "beijing",
     "tehran",
@@ -27,6 +36,9 @@ _GEO_KEYWORDS = (
     "putin",
     "zelensky",
     "netanyahu",
+    "trump",
+    "erdogan",
+    "maduro",
 )
 
 _RELEASE_ACTION_KEYWORDS = (
@@ -36,8 +48,21 @@ _RELEASE_ACTION_KEYWORDS = (
     "pardon",
     "pardoned",
     "hostage",
+    "hostages",
     "prisoner",
+    "prisoners",
     "detained",
+    "bail",
+    "appeal",
+    "appeals",
+    "hearing",
+    "trial",
+    "verdict",
+    "sentence",
+    "sentenced",
+    "extradition",
+    "exchange",
+    "swap",
 )
 
 _DIPLOMACY_ACTION_KEYWORDS = (
@@ -47,6 +72,8 @@ _DIPLOMACY_ACTION_KEYWORDS = (
     "deal",
     "summit",
     "visit",
+    "meet",
+    "meets",
     "meeting",
     "sanction",
     "sanctions",
@@ -54,6 +81,11 @@ _DIPLOMACY_ACTION_KEYWORDS = (
     "tariffs",
     "negotiation",
     "negotiations",
+    "agreement",
+    "accord",
+    "brokered",
+    "mediated",
+    "peace",
 )
 
 _REGIME_ACTION_KEYWORDS = (
@@ -65,6 +97,9 @@ _REGIME_ACTION_KEYWORDS = (
     "removed from office",
     "out by",
     "supreme leader",
+    "succession",
+    "impeached",
+    "impeachment",
 )
 
 _CONFLICT_ACTION_KEYWORDS = (
@@ -79,6 +114,10 @@ _CONFLICT_ACTION_KEYWORDS = (
     "bomb",
     "bombing",
     "offensive",
+    "retaliation",
+    "retaliate",
+    "airstrike",
+    "raid",
 )
 
 _INSTITUTION_KEYWORDS = (
@@ -99,6 +138,19 @@ _INSTITUTION_KEYWORDS = (
 )
 
 _HARD_STATE_KEYWORDS = ("china", "hong kong", "russia", "iran", "north korea")
+_WEAK_GEO_KEYWORDS = ("u.s.", "united states", "usa")
+_BUSINESS_EXCLUSION_KEYWORDS = (
+    "earnings",
+    "quarterly earnings",
+    "eps",
+    "revenue",
+    "guidance",
+    "dividend",
+    "dividends",
+    "stock split",
+    "buyback",
+    "share repurchase",
+)
 
 
 def normalize_text(*parts):
@@ -136,8 +188,10 @@ def build_geopolitical_context(*parts):
     regime_matches = _match_keywords(text, _REGIME_ACTION_KEYWORDS)
     conflict_matches = _match_keywords(text, _CONFLICT_ACTION_KEYWORDS)
     institution_matches = _match_keywords(text, _INSTITUTION_KEYWORDS)
+    business_matches = _match_keywords(text, _BUSINESS_EXCLUSION_KEYWORDS)
     has_deadline = _has_deadline(text)
     hard_state = any(keyword in geo_matches for keyword in _HARD_STATE_KEYWORDS)
+    strong_geo_matches = [keyword for keyword in geo_matches if keyword not in _WEAK_GEO_KEYWORDS]
 
     action_family = "generic_geo"
     action_matches = []
@@ -164,14 +218,21 @@ def build_geopolitical_context(*parts):
         match_score += 0.45
     if hard_state:
         match_score += 0.25
+    if business_matches:
+        match_score -= min(0.9, len(business_matches) * 0.3)
 
     is_geopolitical = False
-    if geo_matches and action_family != "generic_geo":
+    if geo_matches and action_family in {"conflict", "diplomacy"}:
+        is_geopolitical = True
+    elif strong_geo_matches and action_family != "generic_geo":
         is_geopolitical = True
     elif hard_state and institution_matches and has_deadline:
         is_geopolitical = True
     elif hard_state and len(geo_matches) >= 2 and has_deadline:
         is_geopolitical = True
+
+    if business_matches and not hard_state and not institution_matches and not strong_geo_matches:
+        is_geopolitical = False
 
     return {
         "text": text,
@@ -181,6 +242,7 @@ def build_geopolitical_context(*parts):
         "geo_keywords": geo_matches,
         "action_keywords": action_matches,
         "institution_keywords": institution_matches,
+        "business_keywords": business_matches,
         "has_deadline": has_deadline,
         "hard_state": hard_state,
     }
