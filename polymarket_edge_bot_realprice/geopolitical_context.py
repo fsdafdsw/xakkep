@@ -21,6 +21,9 @@ _GEO_KEYWORDS = (
     "saudi arabia",
     "syria",
     "lebanon",
+    "somalia",
+    "palestine",
+    "palestinian",
     "european union",
     "nato",
     "beijing",
@@ -34,11 +37,24 @@ _GEO_KEYWORDS = (
     "jimmy lai",
     "xi jinping",
     "putin",
+    "vladimir putin",
     "zelensky",
     "netanyahu",
     "trump",
     "erdogan",
     "maduro",
+    "mohammed bin salman",
+    "maria corina machado",
+    "emmanuel macron",
+    "friedrich merz",
+    "mette frederiksen",
+    "ahmed al-sharaa",
+    "luiz inacio lula da silva",
+    "lula da silva",
+    "julian assange",
+    "osman kavala",
+    "nawalny",
+    "navalny",
 )
 
 _RELEASE_ACTION_KEYWORDS = (
@@ -60,6 +76,10 @@ _RELEASE_ACTION_KEYWORDS = (
     "verdict",
     "sentence",
     "sentenced",
+    "jailed",
+    "imprisoned",
+    "detention",
+    "custody",
     "extradition",
     "exchange",
     "swap",
@@ -68,7 +88,10 @@ _RELEASE_ACTION_KEYWORDS = (
 _DIPLOMACY_ACTION_KEYWORDS = (
     "ceasefire",
     "truce",
+    "talk",
     "talks",
+    "call",
+    "calls",
     "deal",
     "summit",
     "visit",
@@ -125,6 +148,10 @@ _INSTITUTION_KEYWORDS = (
     "hearing",
     "appeal",
     "judge",
+    "appeals court",
+    "supreme court",
+    "prosecutor",
+    "tribunal",
     "ministry",
     "foreign ministry",
     "state department",
@@ -222,9 +249,18 @@ def build_geopolitical_context(*parts):
         match_score -= min(0.9, len(business_matches) * 0.3)
 
     is_geopolitical = False
-    if geo_matches and action_family in {"conflict", "diplomacy"}:
+    if geo_matches and action_family == "conflict":
         is_geopolitical = True
-    elif strong_geo_matches and action_family != "generic_geo":
+    elif (
+        action_family == "diplomacy"
+        and (
+            len(set(geo_matches)) >= 2
+            or hard_state
+            or institution_matches
+        )
+    ):
+        is_geopolitical = True
+    elif strong_geo_matches and action_family in {"release", "regime_shift"}:
         is_geopolitical = True
     elif hard_state and institution_matches and has_deadline:
         is_geopolitical = True

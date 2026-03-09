@@ -261,7 +261,11 @@ def _dated_binary_prior(market, question_text):
 
 
 def _geopolitical_repricing_predictor(market, question_text):
-    if market.get("market_type") not in {"dated_binary", "near_term_binary"}:
+    market_type = str(market.get("market_type") or "")
+    outcome_count = int(market.get("outcome_count") or 2)
+    if market_type not in {"dated_binary", "near_term_binary", "winner_multi"}:
+        return None
+    if market_type == "winner_multi" and outcome_count > 2:
         return None
 
     context_text = normalize_text(
@@ -292,6 +296,7 @@ def _geopolitical_repricing_predictor(market, question_text):
     has_date = any(token in context_text for token in (" by ", " before ", " on ", " june ", " july ", " august ", " september ", " october ", " november ", " december ", " january ", " february ", " march ", " april ", " may ", " 2026", " 2027", " 2028"))
     has_source = bool(market.get("resolution_source"))
     hard_state = geo_context["hard_state"]
+    binary_event_grid = market_type == "winner_multi"
 
     action_family = geo_context["action_family"]
     action_bonus = 0.0
@@ -328,6 +333,10 @@ def _geopolitical_repricing_predictor(market, question_text):
     repricing_potential += deadline_bonus
     repricing_potential += source_bonus
     repricing_potential -= 0.03 if spread > 0.05 else 0.0
+    if binary_event_grid and action_family in {"diplomacy", "release"}:
+        repricing_potential += 0.05
+    elif binary_event_grid:
+        repricing_potential += 0.02
 
     if hard_state and action_family in {"release", "regime_shift"}:
         final_probability_penalty = 0.03
@@ -352,6 +361,7 @@ def _geopolitical_repricing_predictor(market, question_text):
     confidence += min(0.05, liquidity / 6000.0)
     confidence -= 0.05 if spread > 0.05 else 0.0
     confidence += 0.03 if 5.0 <= days_to_close <= 120.0 else 0.0
+    confidence += 0.03 if binary_event_grid and has_date else 0.0
 
     return {
         "name": "geopolitical_repricing",
@@ -364,10 +374,13 @@ def _geopolitical_repricing_predictor(market, question_text):
             "has_date_deadline": has_date,
             "has_resolution_source": has_source,
             "hard_state": hard_state,
+            "binary_event_grid": binary_event_grid,
+            "market_type": market_type,
             "geo_match_score": geo_context["match_score"],
             "geo_keywords": geo_context["geo_keywords"],
             "action_keywords": geo_context["action_keywords"],
             "institution_keywords": geo_context["institution_keywords"],
+            "business_keywords": geo_context.get("business_keywords") or [],
             "action_bonus": action_bonus,
             "deadline_bonus": deadline_bonus,
             "source_bonus": source_bonus,

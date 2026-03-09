@@ -220,10 +220,28 @@ def _repricing_labels(entry_price, max_price, take_profit_levels, target_prices)
     return labels
 
 
+def _conflict_repricing_labels(entry_price, max_price, runup_levels, target_prices):
+    labels = {}
+    if entry_price is None or max_price is None or entry_price <= 0:
+        for level in runup_levels:
+            labels[f"conflict_repriced_{int(round(level * 100))}pct"] = False
+        for target in target_prices:
+            labels[f"conflict_repriced_to_{int(round(target * 100))}c"] = False
+        return labels
+
+    for level in runup_levels:
+        labels[f"conflict_repriced_{int(round(level * 100))}pct"] = max_price >= (entry_price * (1.0 + level))
+    for target in target_prices:
+        labels[f"conflict_repriced_to_{int(round(target * 100))}c"] = max_price >= target
+    return labels
+
+
 def analyze_repricing(rows, args):
     windows_days = _parse_csv_ints(args.windows_days)
     take_profit_levels = _parse_csv_floats(args.take_profit_levels)
     target_prices = _parse_csv_floats(args.target_prices)
+    conflict_runup_levels = _parse_csv_floats(args.conflict_runup_levels)
+    conflict_target_prices = _parse_csv_floats(args.conflict_target_prices)
     max_window_days = max(windows_days)
     filtered = [row for row in rows if _row_matches_filters(row, args)]
 
@@ -263,6 +281,8 @@ def analyze_repricing(rows, args):
         windows = {}
         runups = []
         hit_counts = []
+        conflict_hit_counts = []
+        action_family = _extract_domain_action_family(row)
         for window in windows_days:
             window_end_ts = min(settle_ts, entry_ts + (window * 24 * 3600))
             max_ts, max_price = _max_price_up_to(forward_history, window_end_ts)
@@ -273,6 +293,7 @@ def analyze_repricing(rows, args):
             drawdown_pct = ((min_price / entry_price) - 1.0) if min_price is not None and entry_price > 0 else None
 
             labels = _repricing_labels(entry_price, max_price, take_profit_levels, target_prices)
+            conflict_labels = _conflict_repricing_labels(entry_price, max_price, conflict_runup_levels, conflict_target_prices) if action_family == "conflict" else {}
             time_to_first_target = {}
             for level in take_profit_levels:
                 threshold_price = entry_price * (1.0 + level)
@@ -288,6 +309,19 @@ def analyze_repricing(rows, args):
                 time_to_first_target[label_key] = (hit_ts - entry_ts) if hit_ts is not None else None
                 hit_counts.append(int(labels[label_key]))
 
+            if action_family == "conflict":
+                for level in conflict_runup_levels:
+                    label_key = f"conflict_repriced_{int(round(level * 100))}pct"
+                    threshold_price = entry_price * (1.0 + level)
+                    hit_ts = _first_cross_time(forward_history, threshold_price, window_end_ts)
+                    time_to_first_target[label_key] = (hit_ts - entry_ts) if hit_ts is not None else None
+                    conflict_hit_counts.append(int(conflict_labels[label_key]))
+                for target in conflict_target_prices:
+                    label_key = f"conflict_repriced_to_{int(round(target * 100))}c"
+                    hit_ts = _first_cross_time(forward_history, target, window_end_ts)
+                    time_to_first_target[label_key] = (hit_ts - entry_ts) if hit_ts is not None else None
+                    conflict_hit_counts.append(int(conflict_labels[label_key]))
+
             windows[f"{window}d"] = {
                 "window_days": window,
                 "window_end_ts": window_end_ts,
@@ -301,6 +335,7 @@ def analyze_repricing(rows, args):
                 "drawdown_abs": drawdown_abs,
                 "drawdown_pct": drawdown_pct,
                 "labels": labels,
+                "conflict_labels": conflict_labels,
                 "time_to_first_target_seconds": time_to_first_target,
             }
             if runup_pct is not None:
@@ -332,6 +367,7 @@ def analyze_repricing(rows, args):
             "window_metrics": windows,
             "best_runup_pct": max(runups) if runups else None,
             "repricing_hit_count": sum(hit_counts),
+            "conflict_repricing_hit_count": sum(conflict_hit_counts),
         }
         analyses.append(analysis)
         by_market_type[str(analysis.get("market_type") or "unknown")].append(analysis)
@@ -341,10 +377,20 @@ def analyze_repricing(rows, args):
         if idx % 25 == 0:
             print(f"Processed repricing forward history: {idx}/{len(filtered)}")
 
-    return analyses, windows_days, take_profit_levels, target_prices, by_market_type, by_domain_name, by_action_family
+    return (
+        analyses,
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+        by_market_type,
+        by_domain_name,
+        by_action_family,
+    )
 
 
-def _summarize_group(rows, windows_days, take_profit_levels, target_prices):
+def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices):
     summary = {
         "count": len(rows),
         "best_runup_pct": _distribution([row.get("best_runup_pct") for row in rows]),
@@ -358,6 +404,7 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices):
             "drawdown_pct": _distribution([item.get("drawdown_pct") for item in window_rows]),
             "max_price": _distribution([item.get("max_price") for item in window_rows]),
             "label_rates": {},
+            "conflict_label_rates": {},
         }
         for level in take_profit_levels:
             label_key = f"repriced_{int(round(level * 100))}pct"
@@ -367,6 +414,16 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices):
             label_key = f"repriced_to_{int(round(target * 100))}c"
             values = [1 if (item.get("labels") or {}).get(label_key) else 0 for item in window_rows]
             window_summary["label_rates"][label_key] = (sum(values) / len(values)) if values else None
+        for level in conflict_runup_levels:
+            label_key = f"conflict_repriced_{int(round(level * 100))}pct"
+            conflict_rows = [item for item in window_rows if item.get("conflict_labels")]
+            values = [1 if (item.get("conflict_labels") or {}).get(label_key) else 0 for item in conflict_rows]
+            window_summary["conflict_label_rates"][label_key] = (sum(values) / len(values)) if values else None
+        for target in conflict_target_prices:
+            label_key = f"conflict_repriced_to_{int(round(target * 100))}c"
+            conflict_rows = [item for item in window_rows if item.get("conflict_labels")]
+            values = [1 if (item.get("conflict_labels") or {}).get(label_key) else 0 for item in conflict_rows]
+            window_summary["conflict_label_rates"][label_key] = (sum(values) / len(values)) if values else None
         summary["windows"][key] = window_summary
     return summary
 
@@ -397,6 +454,8 @@ def parse_args():
     parser.add_argument("--windows-days", default="3,7,14")
     parser.add_argument("--take-profit-levels", default="0.25,0.50")
     parser.add_argument("--target-prices", default="0.10,0.20")
+    parser.add_argument("--conflict-runup-levels", default="0.10,0.25")
+    parser.add_argument("--conflict-target-prices", default="0.40,0.60")
     parser.add_argument("--top-limit", type=int, default=10)
     return parser.parse_args()
 
@@ -408,21 +467,31 @@ def main():
     filtered_rows = [row for row in rows if _row_matches_filters(row, args)]
     print(f"Rows after filters: {len(filtered_rows)}")
 
-    analyses, windows_days, take_profit_levels, target_prices, by_market_type, by_domain_name, by_action_family = analyze_repricing(rows, args)
+    (
+        analyses,
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+        by_market_type,
+        by_domain_name,
+        by_action_family,
+    ) = analyze_repricing(rows, args)
     analyses_ok = [row for row in analyses if not row.get("error")]
     print(f"Rows with forward repricing history: {len(analyses_ok)}")
 
-    overall = _summarize_group(analyses_ok, windows_days, take_profit_levels, target_prices)
+    overall = _summarize_group(analyses_ok, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
     by_market_type_summary = {
-        key: _summarize_group(value, windows_days, take_profit_levels, target_prices)
+        key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_market_type.items())
     }
     by_domain_name_summary = {
-        key: _summarize_group(value, windows_days, take_profit_levels, target_prices)
+        key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_domain_name.items())
     }
     by_action_family_summary = {
-        key: _summarize_group(value, windows_days, take_profit_levels, target_prices)
+        key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_action_family.items())
     }
 
@@ -451,6 +520,8 @@ def main():
         "windows_days": windows_days,
         "take_profit_levels": take_profit_levels,
         "target_prices": target_prices,
+        "conflict_runup_levels": conflict_runup_levels,
+        "conflict_target_prices": conflict_target_prices,
         "overall": overall,
         "by_market_type": by_market_type_summary,
         "by_domain_name": by_domain_name_summary,
