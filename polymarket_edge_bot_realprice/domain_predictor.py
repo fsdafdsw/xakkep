@@ -1,5 +1,6 @@
 import re
 
+from geopolitical_context import build_geopolitical_context
 from market_profile import contains_any, normalize_text
 from odds_feed import get_market_odds_prior
 
@@ -32,59 +33,6 @@ _DECISIVE_SPORT_KEYWORDS = (
     "mvp",
 )
 _TEAM_SPLIT_PATTERNS = (" vs ", " v ", " @ ", " at ")
-_GEOPOLITICAL_KEYWORDS = (
-    "china",
-    "hong kong",
-    "taiwan",
-    "russia",
-    "ukraine",
-    "iran",
-    "israel",
-    "gaza",
-    "nato",
-    "sanction",
-    "tariff",
-    "hostage",
-    "prisoner",
-    "detained",
-    "released",
-    "release",
-    "ceasefire",
-    "truce",
-    "summit",
-    "jimmy lai",
-)
-_RELEASE_ACTION_KEYWORDS = (
-    "released",
-    "release",
-    "freed",
-    "free",
-    "pardon",
-    "pardoned",
-    "hostage",
-    "prisoner",
-    "detained",
-)
-_DIPLOMACY_ACTION_KEYWORDS = (
-    "ceasefire",
-    "truce",
-    "talks",
-    "deal",
-    "summit",
-    "visit",
-    "meeting",
-    "sanction",
-    "tariff",
-)
-_REGIME_ACTION_KEYWORDS = (
-    "resign",
-    "resignation",
-    "step down",
-    "ousted",
-    "removed",
-    "out by",
-    "removed from office",
-)
 _HARD_STATE_KEYWORDS = ("china", "hong kong", "russia", "iran", "north korea")
 
 
@@ -324,7 +272,15 @@ def _geopolitical_repricing_predictor(market, question_text):
         market.get("resolution_source"),
         market.get("category_group"),
     )
-    if not contains_any(context_text, _GEOPOLITICAL_KEYWORDS):
+    geo_context = build_geopolitical_context(
+        question_text,
+        market.get("event_title"),
+        market.get("event_description"),
+        market.get("event_category"),
+        market.get("resolution_source"),
+        market.get("category_group"),
+    )
+    if not geo_context["is_geopolitical"]:
         return None
 
     price = float(market.get("ref_price") or 0.5)
@@ -335,19 +291,18 @@ def _geopolitical_repricing_predictor(market, question_text):
     volume24h = float(market.get("volume24h") or 0.0)
     has_date = any(token in context_text for token in (" by ", " before ", " on ", " june ", " july ", " august ", " september ", " october ", " november ", " december ", " january ", " february ", " march ", " april ", " may ", " 2026", " 2027", " 2028"))
     has_source = bool(market.get("resolution_source"))
-    hard_state = contains_any(context_text, _HARD_STATE_KEYWORDS)
+    hard_state = geo_context["hard_state"]
 
-    action_family = "generic_geo"
+    action_family = geo_context["action_family"]
     action_bonus = 0.0
-    if contains_any(context_text, _RELEASE_ACTION_KEYWORDS):
-        action_family = "release"
+    if action_family == "release":
         action_bonus += 0.05
-    elif contains_any(context_text, _DIPLOMACY_ACTION_KEYWORDS):
-        action_family = "diplomacy"
+    elif action_family == "diplomacy":
         action_bonus += 0.04
-    elif contains_any(context_text, _REGIME_ACTION_KEYWORDS):
-        action_family = "regime_shift"
+    elif action_family == "regime_shift":
         action_bonus += 0.03
+    elif action_family == "conflict":
+        action_bonus += 0.04
 
     deadline_bonus = 0.05 if has_date else 0.0
     source_bonus = 0.04 if has_source else 0.0
@@ -374,7 +329,12 @@ def _geopolitical_repricing_predictor(market, question_text):
     repricing_potential += source_bonus
     repricing_potential -= 0.03 if spread > 0.05 else 0.0
 
-    final_probability_penalty = 0.03 if hard_state and action_family in {"release", "regime_shift"} else 0.0
+    if hard_state and action_family in {"release", "regime_shift"}:
+        final_probability_penalty = 0.03
+    elif hard_state and action_family == "conflict":
+        final_probability_penalty = 0.01
+    else:
+        final_probability_penalty = 0.0
     price_shape = 0.0
     if 0.04 <= price <= 0.16:
         price_shape += 0.05
@@ -404,6 +364,10 @@ def _geopolitical_repricing_predictor(market, question_text):
             "has_date_deadline": has_date,
             "has_resolution_source": has_source,
             "hard_state": hard_state,
+            "geo_match_score": geo_context["match_score"],
+            "geo_keywords": geo_context["geo_keywords"],
+            "action_keywords": geo_context["action_keywords"],
+            "institution_keywords": geo_context["institution_keywords"],
             "action_bonus": action_bonus,
             "deadline_bonus": deadline_bonus,
             "source_bonus": source_bonus,

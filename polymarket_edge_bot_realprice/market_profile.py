@@ -1,5 +1,7 @@
 import re
 
+from geopolitical_context import is_geopolitical_text
+
 
 _DATE_RE = re.compile(
     r"\b("
@@ -49,27 +51,6 @@ _PRICE_TARGET_KEYWORDS = (
     "close at",
 )
 _POLITICS_KEYWORDS = ("politic", "election", "president", "nomination", "seat", "prime minister")
-_GEOPOLITICS_KEYWORDS = (
-    "china",
-    "hong kong",
-    "taiwan",
-    "russia",
-    "ukraine",
-    "iran",
-    "israel",
-    "gaza",
-    "nato",
-    "sanction",
-    "tariff",
-    "hostage",
-    "prisoner",
-    "detained",
-    "released",
-    "release",
-    "ceasefire",
-    "truce",
-    "jimmy lai",
-)
 _SPORTS_KEYWORDS = (
     "nba",
     "nfl",
@@ -204,7 +185,12 @@ def classify_category_group(market):
         market.get("event_title"),
     )
 
-    if contains_any(text, _GEOPOLITICS_KEYWORDS):
+    if is_geopolitical_text(
+        market.get("event_category"),
+        market.get("question"),
+        market.get("event_title"),
+        market.get("event_description"),
+    ):
         return "geopolitics"
     if contains_any(text, _POLITICS_KEYWORDS):
         return "politics"
