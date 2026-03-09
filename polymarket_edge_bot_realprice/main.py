@@ -410,6 +410,38 @@ def _format_rejected(rank, candidate):
     return "\n".join(lines)
 
 
+def _radar_verdict(candidate):
+    source = str(candidate.get("radar_source") or "")
+    if source == "value":
+        return "BUY NOW"
+    if source == "watch":
+        return "WATCH, NO BUY YET"
+    return "DO NOT BUY"
+
+
+def _radar_reason(candidate):
+    reason = candidate.get("rejection_reason")
+    if not reason:
+        source = str(candidate.get("radar_source") or "")
+        if source == "value":
+            return "Passed trade filters"
+        if source == "watch":
+            return "Interesting theme, but not strong enough for top recommendations"
+        return "Theme candidate only"
+
+    labels = {
+        "low_confidence": "confidence too low",
+        "low_gross_edge": "gross edge too low",
+        "low_net_edge": "net edge too low",
+        "low_meta_confidence": "meta confidence too low",
+        "low_meta_model_prob": "meta-model probability too low",
+        "low_graph_consistency": "graph consistency too low",
+        "low_robustness": "robustness too low",
+        "low_lcb_edge": "lower-bound edge is negative",
+    }
+    return labels.get(reason, str(reason).replace("_", " "))
+
+
 def _is_geopolitical_radar_candidate(candidate):
     return (
         candidate.get("domain_name") == "geopolitical_repricing"
@@ -449,19 +481,21 @@ def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, exclud
 
 def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
+    verdict = _radar_verdict(candidate)
+    reason = _radar_reason(candidate)
     lines.append(
-        f"Radar repricing {candidate.get('repricing_potential', 0.0):.2f} | Theme {candidate.get('domain_name') or 'neutral'} | action={candidate.get('domain_action_family') or 'generic'}"
+        f"Verdict: {verdict}"
     )
     lines.append(
-        f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
+        f"Theme: {candidate.get('domain_name') or 'neutral'} | Action: {candidate.get('domain_action_family') or 'generic'} | Repricing score: {candidate.get('repricing_potential', 0.0):.2f}"
     )
-    status_bits = [f"Confidence {candidate['confidence']:.2f}"]
+    lines.append(
+        f"Price now: {candidate['entry']:.3f} | Model fair: {candidate['fair']:.3f} | Net edge: {candidate['net_edge']:.3f}"
+    )
+    details = [f"Confidence: {candidate['confidence']:.2f}", f"Reason: {reason}"]
     if candidate.get("rejection_reason"):
-        status_bits.append(f"blocked_by={candidate['rejection_reason']}")
-        status_bits.append(f"shortfall={candidate.get('diagnostic_shortfall', 0.0):.3f}")
-    else:
-        status_bits.append(f"status={candidate.get('radar_source', 'candidate')}")
-    lines.append(" | ".join(status_bits))
+        details.append(f"Gap to pass: {candidate.get('diagnostic_shortfall', 0.0):.3f}")
+    lines.append(" | ".join(details))
     return "\n".join(lines)
 
 
@@ -704,11 +738,7 @@ def run():
     )
 
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    live_mode = "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline"
     report = f"""Polymarket edge scan - {utc_now}
-build={BOT_BUILD_ID} | format=v3
-source={BOT_SOURCE}
-mode={live_mode}
 
 Scan stats
 Scanned: {len(markets)} | Passed base filters: {len(accepted)}
@@ -725,22 +755,13 @@ Geopolitical Repricing Radar
 {near_title}
 
 {near}
-
-Reject reasons
-{rejects}
-Skipped by exposure cap: {skipped_by_exposure}
-
-Risk params
-bankroll=${BANKROLL_USD:.0f} | kelly_fraction={KELLY_FRACTION:.2f} | max_bet=${MAX_BET_USD:.0f} | max_total_exposure={MAX_TOTAL_EXPOSURE_PCT:.0%} | max_signals_per_event={MAX_SIGNALS_PER_EVENT}
-gates: confidence>={MIN_CONFIDENCE:.2f} | gross_edge>={MIN_GROSS_EDGE:.3f} | edge>{EDGE_THRESHOLD:.3f} | watch>{WATCH_THRESHOLD:.3f}
-meta_selector: enabled={USE_META_MODEL_SELECTOR} | min_prob={MIN_META_TRADE_PROB:.2f} | artifact={'yes' if META_MODEL_ARTIFACT_PATH else 'no'}
 """
 
     report_payload = {
         "generated_at_utc": utc_now,
         "build": BOT_BUILD_ID,
         "source": BOT_SOURCE,
-        "mode": live_mode,
+        "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
         "scanned": len(markets),
         "passed_base_filters": len(accepted),
         "price_coverage": coverage["price_available"],
