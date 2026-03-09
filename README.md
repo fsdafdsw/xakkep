@@ -2,6 +2,8 @@
 
 Исследовательский и сигнальный бот для Polymarket с упором на поиск mispricing, repricing-идей и аккуратную исследовательскую работу перед live-использованием.
 
+English version: [README.en.md](/Users/slava/Documents/New%20project/README.en.md)
+
 Код проекта находится в директории `polymarket_edge_bot_realprice/`.
 
 ## Что это за проект
@@ -142,4 +144,3 @@ python3 build_geopolitical_pool.py \
 ## Связь
 
 - Telegram: [t.me/shushurikhin](https://t.me/shushurikhin)
-
