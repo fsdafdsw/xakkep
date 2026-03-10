@@ -10,30 +10,17 @@ Russian version: [README.md](README.md)
 
 **Built as a practical research-to-live system, not just a market notifier.**
 
-**Vyacheslav Shushurikhin** — professional editor and vibe coder.  
-Open to new projects and collaborations: [t.me/shushurikhin](https://t.me/shushurikhin)
+> **Project author - Vyacheslav Shushurikhin.**  
+> Professional editor and vibe coder.  
+> Open to new projects and collaborations: [t.me/shushurikhin](https://t.me/shushurikhin)
+
+The core code lives in `polymarket_edge_bot_realprice/`.
 
 ## TL;DR
 
 - the bot scans Polymarket markets and sends signals to Telegram;
 - the repo includes a dedicated research layer with backtests and repricing backtests;
 - the real strength here is not “magic alpha”, but a well-structured workflow for testing market ideas.
-
-## Why this repo exists
-
-This repository exists to turn prediction-market ideas into a working workflow:
-
-- generate hypotheses;
-- test them on data;
-- separate narrative from measurable signal;
-- move the strongest ideas into live reporting and Telegram delivery.
-
-## At a glance
-
-- `Live` — scans markets and sends readable Telegram reports
-- `Research` — includes backtests, repricing backtests, calibration, and dataset export
-- `Geopolitics` — has a dedicated repricing radar for geopolitical narratives
-- `Structure` — uses uncertainty, lower-bound edge logic, and relation-aware signals
 
 ## Working now
 
@@ -53,33 +40,6 @@ This repository exists to turn prediction-market ideas into a working workflow:
 - sports odds prior;
 - broader geo coverage for `release / court / hostage / regime shift` setups;
 - any claim of universal profitability across all market families.
-
-## What it does
-
-This project combines live monitoring and research tooling in one codebase:
-
-- scans Polymarket markets,
-- scores potential edge and market quality,
-- tracks structural and relation-based signals,
-- highlights geopolitical repricing setups,
-- runs historical backtests and repricing backtests,
-- sends readable Telegram reports.
-
-The core code lives in `polymarket_edge_bot_realprice/`.
-
-## Why it is interesting
-
-- `Research-to-live workflow`
-  This is not just a notifier. The repo already includes dataset export, calibration, meta-model evaluation, and repricing analysis.
-
-- `Geopolitical Repricing Radar`
-  A dedicated layer for markets that can reprice sharply before final resolution.
-
-- `Structure-aware logic`
-  The bot uses market profiling, uncertainty penalties, lower-bound edge logic, relation signals, and family-specific handling.
-
-- `Readable delivery`
-  Telegram output is optimized for decision-making, not for raw logs.
 
 ## Main components
 
