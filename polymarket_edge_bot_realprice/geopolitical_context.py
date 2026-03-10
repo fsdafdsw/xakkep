@@ -203,6 +203,39 @@ _QUOTE_ACTION_KEYWORDS = (
     " 10+ times",
     " 25+ times",
 )
+_LEGAL_RELEASE_CONTEXT_KEYWORDS = (
+    "political prisoner",
+    "dissident",
+    "detained",
+    "detention",
+    "custody",
+    "custodial",
+    "jailed",
+    "imprisoned",
+    "prison",
+    "prisoner",
+    "hostage",
+    "bail",
+    "parole",
+    "amnesty",
+    "clemency",
+    "extradite",
+    "extradited",
+    "appeal",
+    "appeals court",
+    "supreme court",
+    "court",
+    "hearing",
+    "tribunal",
+    "prosecutor",
+    "extradition",
+    "national security law",
+)
+_KNOWN_RELEASE_FIGURES = (
+    "jimmy lai",
+    "julian assange",
+    "osman kavala",
+)
 
 
 def normalize_text(*parts):
@@ -247,47 +280,55 @@ def _is_quote_or_speech_market(text):
 
 
 def build_geopolitical_context(*parts):
+    question_text = normalize_text(parts[0] if parts else "")
     text = normalize_text(*parts)
     catalyst = parse_catalyst(*parts)
     geo_matches = _match_keywords(text, _GEO_KEYWORDS)
+    question_geo_matches = _match_keywords(question_text, _GEO_KEYWORDS)
     release_matches = _match_keywords(text, _RELEASE_ACTION_KEYWORDS)
+    release_question_matches = _match_keywords(question_text, _RELEASE_ACTION_KEYWORDS)
     diplomacy_matches = _match_keywords(text, _DIPLOMACY_ACTION_KEYWORDS)
+    diplomacy_question_matches = _match_keywords(question_text, _DIPLOMACY_ACTION_KEYWORDS)
     regime_matches = _match_keywords(text, _REGIME_ACTION_KEYWORDS)
+    regime_question_matches = _match_keywords(question_text, _REGIME_ACTION_KEYWORDS)
     conflict_matches = _match_keywords(text, _CONFLICT_ACTION_KEYWORDS)
+    conflict_question_matches = _match_keywords(question_text, _CONFLICT_ACTION_KEYWORDS)
     institution_matches = _match_keywords(text, _INSTITUTION_KEYWORDS)
+    release_context_matches = _match_keywords(text, _LEGAL_RELEASE_CONTEXT_KEYWORDS)
     business_matches = _match_keywords(text, _BUSINESS_EXCLUSION_KEYWORDS)
     has_deadline = _has_deadline(text)
-    quote_market = _is_quote_or_speech_market(text)
+    quote_market = _is_quote_or_speech_market(question_text) or _is_quote_or_speech_market(text)
     hard_state = any(keyword in geo_matches for keyword in _HARD_STATE_KEYWORDS)
     strong_geo_matches = [keyword for keyword in geo_matches if keyword not in _WEAK_GEO_KEYWORDS]
+    release_figure_matches = [name for name in _KNOWN_RELEASE_FIGURES if _keyword_pattern(name).search(text)]
 
     action_family = "generic_geo"
     action_matches = []
     catalyst_family = catalyst.get("catalyst_family")
-    if catalyst_family == "release":
+    if catalyst_family == "release" and (release_question_matches or release_context_matches or release_figure_matches):
         action_family = "release"
-        action_matches = release_matches or list(catalyst.get("catalyst_keywords") or [])
-    elif catalyst_family == "diplomacy":
+        action_matches = release_question_matches or release_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "diplomacy" and diplomacy_question_matches:
         action_family = "diplomacy"
-        action_matches = diplomacy_matches or list(catalyst.get("catalyst_keywords") or [])
-    elif catalyst_family == "regime_shift":
+        action_matches = diplomacy_question_matches or diplomacy_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "regime_shift" and regime_question_matches:
         action_family = "regime_shift"
-        action_matches = regime_matches or list(catalyst.get("catalyst_keywords") or [])
-    elif catalyst_family == "conflict":
+        action_matches = regime_question_matches or regime_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "conflict" and conflict_question_matches:
         action_family = "conflict"
-        action_matches = conflict_matches or list(catalyst.get("catalyst_keywords") or [])
-    elif release_matches:
+        action_matches = conflict_question_matches or conflict_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif release_question_matches:
         action_family = "release"
-        action_matches = release_matches
-    elif diplomacy_matches:
+        action_matches = release_question_matches
+    elif diplomacy_question_matches:
         action_family = "diplomacy"
-        action_matches = diplomacy_matches
-    elif regime_matches:
+        action_matches = diplomacy_question_matches
+    elif regime_question_matches:
         action_family = "regime_shift"
-        action_matches = regime_matches
-    elif conflict_matches:
+        action_matches = regime_question_matches
+    elif conflict_question_matches:
         action_family = "conflict"
-        action_matches = conflict_matches
+        action_matches = conflict_question_matches
 
     match_score = 0.0
     match_score += min(1.8, len(geo_matches) * 0.75)
@@ -299,6 +340,10 @@ def build_geopolitical_context(*parts):
         match_score += 0.45
     if hard_state:
         match_score += 0.25
+    if release_context_matches:
+        match_score += min(0.7, len(release_context_matches) * 0.15)
+    if release_figure_matches:
+        match_score += min(0.6, len(release_figure_matches) * 0.3)
     if business_matches:
         match_score -= min(0.9, len(business_matches) * 0.3)
     if quote_market:
@@ -317,7 +362,17 @@ def build_geopolitical_context(*parts):
         )
     ):
         is_geopolitical = True
-    elif strong_geo_matches and action_family in {"release", "regime_shift"}:
+    elif (
+        action_family == "release"
+        and (
+            strong_geo_matches
+            or hard_state
+            or release_figure_matches
+            or (release_context_matches and (institution_matches or question_geo_matches))
+        )
+    ):
+        is_geopolitical = True
+    elif strong_geo_matches and action_family == "regime_shift":
         is_geopolitical = True
     elif hard_state and institution_matches and has_deadline:
         is_geopolitical = True
@@ -335,10 +390,13 @@ def build_geopolitical_context(*parts):
         "match_score": match_score,
         "action_family": action_family,
         "geo_keywords": geo_matches,
+        "question_geo_keywords": question_geo_matches,
         "action_keywords": action_matches,
         "institution_keywords": institution_matches,
         "business_keywords": business_matches,
         "quote_market": quote_market,
+        "release_context_keywords": release_context_matches,
+        "release_figure_keywords": release_figure_matches,
         "catalyst_type": catalyst.get("catalyst_type"),
         "catalyst_strength": catalyst.get("catalyst_strength"),
         "catalyst_hardness": catalyst.get("hardness"),
