@@ -1,6 +1,7 @@
 import argparse
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backtest import (
@@ -81,6 +82,20 @@ def _parse_csv_list(text):
     return values
 
 
+def _to_unix(iso_str):
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except ValueError:
+        return None
+
+
+def _date_label(ts):
+    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+
+
 def _build_offset_list(args):
     offset_list = _parse_offset_list(args.start_offsets)
     if offset_list:
@@ -111,6 +126,24 @@ def _fetch_events_for_offsets(offsets, max_events_fetch, page_size):
                 seen_event_ids.add(event_id)
             combined.append(event)
     return combined, fetched_meta
+
+
+def _infer_release_event_window(events):
+    timestamps = []
+    for event in events:
+        event_end = _to_unix(event.get("endDate"))
+        if event_end is not None:
+            timestamps.append(event_end)
+        markets = event.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+        for market in markets:
+            market_end = _to_unix(market.get("endDate") or event.get("endDate"))
+            if market_end is not None:
+                timestamps.append(market_end)
+    if not timestamps:
+        return None, None
+    return min(timestamps), max(timestamps)
 
 
 def _keyword_hits(text, keywords):
@@ -330,6 +363,11 @@ def parse_args():
         default=",".join(_DEFAULT_RELEASE_DISCOVERY_KEYWORDS),
         help="Comma-separated coarse keywords used before full release matching. Use 'any' to disable.",
     )
+    parser.add_argument(
+        "--align-window-to-discovered-events",
+        action="store_true",
+        help="Use the min/max endDate of discovered release events instead of the requested date window.",
+    )
     parser.add_argument("--dataset-output", required=True, help="JSONL file or directory for the snapshot pool.")
     parser.add_argument("--summary-output", default=None, help="Optional JSON summary path.")
     parser.add_argument("--use-liquidity-filter", action="store_true")
@@ -379,10 +417,21 @@ def main():
     print(f"Release markets kept: {filter_summary['markets_kept']}")
     print(f"Catalyst types: {filter_summary['catalyst_type_counts']}")
 
+    applied_start_ts = start_ts
+    applied_end_ts = end_ts
+    inferred_start_ts, inferred_end_ts = _infer_release_event_window(release_events)
+    if args.align_window_to_discovered_events and inferred_start_ts is not None and inferred_end_ts is not None:
+        applied_start_ts = inferred_start_ts
+        applied_end_ts = inferred_end_ts
+        print(
+            "Applied event-anchored window: "
+            f"{_date_label(applied_start_ts)} .. {_date_label(applied_end_ts)}"
+        )
+
     candidates, rejects, reasons, diagnostics, dataset_rows = build_candidates(
         events=release_events,
-        start_ts=start_ts,
-        end_ts=end_ts,
+        start_ts=applied_start_ts,
+        end_ts=applied_end_ts,
         entry_hours_before_close=args.entry_hours_before_close,
         history_window_days=args.history_window_days,
         max_markets=args.max_candidate_markets,
@@ -391,13 +440,20 @@ def main():
         max_history_requests=args.max_history_requests,
     )
 
-    dataset_path = resolve_dataset_output(args.dataset_output, args.start_date, args.end_date)
+    output_start_date = _date_label(applied_start_ts)
+    output_end_date = _date_label(applied_end_ts)
+    dataset_path = resolve_dataset_output(args.dataset_output, output_start_date, output_end_date)
     write_jsonl(dataset_rows, dataset_path)
     print(f"Release snapshot pool written: {dataset_path}")
     print(f"Dataset rows: {len(dataset_rows)} | Final candidates: {len(candidates)}")
 
     summary = {
         "period": {"start_date": args.start_date, "end_date": args.end_date},
+        "applied_period": {
+            "start_date": _date_label(applied_start_ts),
+            "end_date": _date_label(applied_end_ts),
+            "aligned_to_discovered_events": bool(args.align_window_to_discovered_events and inferred_start_ts is not None and inferred_end_ts is not None),
+        },
         "parameters": {
             "start_offset": start_offset,
             "start_offsets": offset_list,
@@ -414,6 +470,7 @@ def main():
             "min_match_score": args.min_match_score,
             "allowed_catalyst_types": sorted(allowed_catalyst_types),
             "discovery_keywords": discovery_keywords,
+            "align_window_to_discovered_events": args.align_window_to_discovered_events,
             "use_liquidity_filter": args.use_liquidity_filter,
         },
         "coarse_prefilter": coarse_summary,
