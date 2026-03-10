@@ -9,7 +9,7 @@ from backtest import (
     fetch_closed_events,
     find_total_closed_events,
 )
-from geopolitical_context import build_geopolitical_context
+from geopolitical_context import build_geopolitical_context, normalize_text
 from research_dataset import resolve_dataset_output, write_jsonl
 
 
@@ -20,6 +20,35 @@ _DEFAULT_RELEASE_CATALYST_TYPES = {
     "hearing",
     "court_ruling",
 }
+_DEFAULT_RELEASE_DISCOVERY_KEYWORDS = (
+    "jimmy lai",
+    "julian assange",
+    "osman kavala",
+    "hostage",
+    "hostages",
+    "release",
+    "released",
+    "appeal",
+    "appeals court",
+    "hearing",
+    "court",
+    "tribunal",
+    "extradite",
+    "extradited",
+    "extradition",
+    "parole",
+    "amnesty",
+    "clemency",
+    "prisoner",
+    "prisoners",
+    "detained",
+    "detention",
+    "custody",
+    "bail",
+    "swap",
+    "exchange",
+    "national security law",
+)
 
 
 def _parse_offset_list(text):
@@ -42,6 +71,30 @@ def _parse_csv_set(text):
     return values
 
 
+def _parse_csv_list(text):
+    values = []
+    for item in str(text or "").split(","):
+        item = item.strip().lower()
+        if not item or item == "any":
+            continue
+        values.append(item)
+    return values
+
+
+def _build_offset_list(args):
+    offset_list = _parse_offset_list(args.start_offsets)
+    if offset_list:
+        return [max(0, value) for value in offset_list]
+
+    if args.offset_range_start is not None and args.offset_range_end is not None:
+        step = max(1, args.offset_range_step)
+        start = max(0, min(args.offset_range_start, args.offset_range_end))
+        end = max(args.offset_range_start, args.offset_range_end)
+        return list(range(start, end + 1, step))
+
+    return []
+
+
 def _fetch_events_for_offsets(offsets, max_events_fetch, page_size):
     combined = []
     seen_event_ids = set()
@@ -58,6 +111,70 @@ def _fetch_events_for_offsets(offsets, max_events_fetch, page_size):
                 seen_event_ids.add(event_id)
             combined.append(event)
     return combined, fetched_meta
+
+
+def _keyword_hits(text, keywords):
+    normalized = normalize_text(text)
+    hits = []
+    for keyword in keywords:
+        if keyword in normalized:
+            hits.append(keyword)
+    return hits
+
+
+def _coarse_keyword_prefilter_events(events, discovery_keywords):
+    if not discovery_keywords:
+        return events, {
+            "enabled": False,
+            "events_kept": len(events),
+            "markets_kept": sum(len(event.get("markets") or []) for event in events if isinstance(event.get("markets"), list)),
+            "top_keywords": {},
+        }
+
+    filtered_events = []
+    keyword_counter = Counter()
+    kept_markets = 0
+
+    for event in events:
+        markets = event.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+
+        event_title = event.get("title") or event.get("question") or ""
+        event_description = event.get("description") or ""
+        event_category = event.get("category") or ""
+        resolution_source = event.get("resolutionSource") or ""
+
+        kept = []
+        for market in markets:
+            market_text = normalize_text(
+                market.get("question"),
+                event_title,
+                event_description,
+                event_category,
+                resolution_source,
+            )
+            hits = _keyword_hits(market_text, discovery_keywords)
+            if not hits:
+                continue
+            enriched = dict(market)
+            enriched["_release_discovery_hits"] = hits
+            kept.append(enriched)
+            kept_markets += 1
+            for hit in hits:
+                keyword_counter[hit] += 1
+
+        if kept:
+            cloned = dict(event)
+            cloned["markets"] = kept
+            filtered_events.append(cloned)
+
+    return filtered_events, {
+        "enabled": True,
+        "events_kept": len(filtered_events),
+        "markets_kept": kept_markets,
+        "top_keywords": dict(keyword_counter.most_common(20)),
+    }
 
 
 def _release_score(context, catalyst):
@@ -191,6 +308,9 @@ def parse_args():
     parser.add_argument("--end-date", default="2026-03-01", help="UTC date, e.g. 2026-03-01")
     parser.add_argument("--start-offset", type=int, default=None)
     parser.add_argument("--start-offsets", default="", help="Comma-separated list of offsets to scan and merge.")
+    parser.add_argument("--offset-range-start", type=int, default=None, help="Optional first offset for automatic sweep.")
+    parser.add_argument("--offset-range-end", type=int, default=None, help="Optional last offset for automatic sweep.")
+    parser.add_argument("--offset-range-step", type=int, default=20000, help="Step for automatic offset sweep.")
     parser.add_argument("--page-size", type=int, default=200)
     parser.add_argument("--lookback-events", type=int, default=50000)
     parser.add_argument("--max-events-fetch", type=int, default=50000)
@@ -205,6 +325,11 @@ def parse_args():
         default="release,hostage_release,appeal,hearing,court_ruling",
         help="Comma-separated catalyst types to keep. Use 'any' to disable.",
     )
+    parser.add_argument(
+        "--discovery-keywords",
+        default=",".join(_DEFAULT_RELEASE_DISCOVERY_KEYWORDS),
+        help="Comma-separated coarse keywords used before full release matching. Use 'any' to disable.",
+    )
     parser.add_argument("--dataset-output", required=True, help="JSONL file or directory for the snapshot pool.")
     parser.add_argument("--summary-output", default=None, help="Optional JSON summary path.")
     parser.add_argument("--use-liquidity-filter", action="store_true")
@@ -216,8 +341,9 @@ def main():
     start_ts = _parse_date_to_ts(args.start_date)
     end_ts = _parse_date_to_ts(args.end_date) + (24 * 3600) - 1
     allowed_catalyst_types = _parse_csv_set(args.allowed_catalyst_types)
+    discovery_keywords = _parse_csv_list(args.discovery_keywords)
 
-    offset_list = _parse_offset_list(args.start_offsets)
+    offset_list = _build_offset_list(args)
     if offset_list:
         offsets = [max(0, value) for value in offset_list]
         events, fetched_meta = _fetch_events_for_offsets(
@@ -240,8 +366,12 @@ def main():
         fetched_meta = [{"offset": start_offset, "event_count": len(events)}]
     print(f"Fetched events: {len(events)}")
 
+    coarse_events, coarse_summary = _coarse_keyword_prefilter_events(events, discovery_keywords)
+    print(f"Coarse keyword-prefilter events kept: {coarse_summary['events_kept']}")
+    print(f"Coarse keyword-prefilter markets kept: {coarse_summary['markets_kept']}")
+
     release_events, filter_summary = _filter_events_to_release(
-        events=events,
+        events=coarse_events,
         min_match_score=args.min_match_score,
         allowed_catalyst_types=allowed_catalyst_types,
     )
@@ -271,6 +401,9 @@ def main():
         "parameters": {
             "start_offset": start_offset,
             "start_offsets": offset_list,
+            "offset_range_start": args.offset_range_start,
+            "offset_range_end": args.offset_range_end,
+            "offset_range_step": args.offset_range_step,
             "page_size": args.page_size,
             "max_events_fetch": args.max_events_fetch,
             "max_candidate_markets": args.max_candidate_markets,
@@ -280,8 +413,10 @@ def main():
             "history_fidelity": args.history_fidelity,
             "min_match_score": args.min_match_score,
             "allowed_catalyst_types": sorted(allowed_catalyst_types),
+            "discovery_keywords": discovery_keywords,
             "use_liquidity_filter": args.use_liquidity_filter,
         },
+        "coarse_prefilter": coarse_summary,
         "filter_summary": filter_summary,
         "fetch_summary": fetched_meta,
         "dataset_row_count": len(dataset_rows),
