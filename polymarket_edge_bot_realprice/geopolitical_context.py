@@ -180,6 +180,29 @@ _BUSINESS_EXCLUSION_KEYWORDS = (
     "buyback",
     "share repurchase",
 )
+_QUOTE_EVENT_KEYWORDS = (
+    "podcast",
+    "episode",
+    "address",
+    "speech",
+    "interview",
+    "debate",
+    "town hall",
+    "appearance",
+    "wef",
+    "joe rogan",
+)
+_QUOTE_ACTION_KEYWORDS = (
+    " say ",
+    " said ",
+    " be said ",
+    " mention ",
+    " mentions ",
+    " mentioned ",
+    " 5+ times",
+    " 10+ times",
+    " 25+ times",
+)
 
 
 def normalize_text(*parts):
@@ -209,6 +232,20 @@ def _has_deadline(text):
     return bool(re.search(r"\b(20\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|q[1-4])\b", text))
 
 
+def _is_quote_or_speech_market(text):
+    if not text:
+        return False
+    if any(token in text for token in _QUOTE_ACTION_KEYWORDS):
+        return True
+    if "will " in text and " say " in text:
+        return True
+    if " during " in text and any(token in text for token in _QUOTE_EVENT_KEYWORDS):
+        return True
+    if any(token in text for token in _QUOTE_EVENT_KEYWORDS) and (" be said " in text or " say " in text or " mention " in text):
+        return True
+    return False
+
+
 def build_geopolitical_context(*parts):
     text = normalize_text(*parts)
     catalyst = parse_catalyst(*parts)
@@ -220,6 +257,7 @@ def build_geopolitical_context(*parts):
     institution_matches = _match_keywords(text, _INSTITUTION_KEYWORDS)
     business_matches = _match_keywords(text, _BUSINESS_EXCLUSION_KEYWORDS)
     has_deadline = _has_deadline(text)
+    quote_market = _is_quote_or_speech_market(text)
     hard_state = any(keyword in geo_matches for keyword in _HARD_STATE_KEYWORDS)
     strong_geo_matches = [keyword for keyword in geo_matches if keyword not in _WEAK_GEO_KEYWORDS]
 
@@ -263,6 +301,8 @@ def build_geopolitical_context(*parts):
         match_score += 0.25
     if business_matches:
         match_score -= min(0.9, len(business_matches) * 0.3)
+    if quote_market:
+        match_score -= 1.2
     match_score += max(0.0, (float(catalyst.get("catalyst_strength") or 0.0) - 0.50) * 0.8)
 
     is_geopolitical = False
@@ -286,6 +326,8 @@ def build_geopolitical_context(*parts):
 
     if business_matches and not hard_state and not institution_matches and not strong_geo_matches:
         is_geopolitical = False
+    if quote_market:
+        is_geopolitical = False
 
     return {
         "text": text,
@@ -296,6 +338,7 @@ def build_geopolitical_context(*parts):
         "action_keywords": action_matches,
         "institution_keywords": institution_matches,
         "business_keywords": business_matches,
+        "quote_market": quote_market,
         "catalyst_type": catalyst.get("catalyst_type"),
         "catalyst_strength": catalyst.get("catalyst_strength"),
         "catalyst_hardness": catalyst.get("hardness"),
