@@ -297,6 +297,11 @@ def _geopolitical_repricing_predictor(market, question_text):
     has_source = bool(market.get("resolution_source"))
     hard_state = geo_context["hard_state"]
     binary_event_grid = market_type == "winner_multi"
+    catalyst_type = str(geo_context.get("catalyst_type") or "generic")
+    catalyst_strength = float(geo_context.get("catalyst_strength") or 0.0)
+    catalyst_hardness = str(geo_context.get("catalyst_hardness") or "soft")
+    catalyst_reversibility = str(geo_context.get("catalyst_reversibility") or "high")
+    catalyst_has_official_source = bool(geo_context.get("catalyst_has_official_source"))
 
     action_family = geo_context["action_family"]
     action_bonus = 0.0
@@ -333,6 +338,11 @@ def _geopolitical_repricing_predictor(market, question_text):
     repricing_potential += deadline_bonus
     repricing_potential += source_bonus
     repricing_potential -= 0.03 if spread > 0.05 else 0.0
+    repricing_potential += max(0.0, catalyst_strength - 0.60) * 0.22
+    if catalyst_hardness == "hard":
+        repricing_potential += 0.03
+    if catalyst_reversibility == "low":
+        repricing_potential += 0.02
     if binary_event_grid and action_family in {"diplomacy", "release"}:
         repricing_potential += 0.05
     elif binary_event_grid:
@@ -362,6 +372,8 @@ def _geopolitical_repricing_predictor(market, question_text):
     confidence -= 0.05 if spread > 0.05 else 0.0
     confidence += 0.03 if 5.0 <= days_to_close <= 120.0 else 0.0
     confidence += 0.03 if binary_event_grid and has_date else 0.0
+    confidence += max(0.0, catalyst_strength - 0.65) * 0.18
+    confidence += 0.03 if catalyst_has_official_source else 0.0
 
     return {
         "name": "geopolitical_repricing",
@@ -369,6 +381,11 @@ def _geopolitical_repricing_predictor(market, question_text):
         "confidence": _clamp(confidence),
         "components": {
             "action_family": action_family,
+            "catalyst_type": catalyst_type,
+            "catalyst_strength": catalyst_strength,
+            "catalyst_hardness": catalyst_hardness,
+            "catalyst_reversibility": catalyst_reversibility,
+            "catalyst_has_official_source": catalyst_has_official_source,
             "repricing_potential": _clamp(repricing_potential),
             "days_to_close": days_to_close,
             "has_date_deadline": has_date,
@@ -380,6 +397,8 @@ def _geopolitical_repricing_predictor(market, question_text):
             "geo_keywords": geo_context["geo_keywords"],
             "action_keywords": geo_context["action_keywords"],
             "institution_keywords": geo_context["institution_keywords"],
+            "catalyst_keywords": geo_context.get("catalyst_keywords") or [],
+            "catalyst_official_source_keywords": geo_context.get("catalyst_official_source_keywords") or [],
             "business_keywords": geo_context.get("business_keywords") or [],
             "action_bonus": action_bonus,
             "deadline_bonus": deadline_bonus,

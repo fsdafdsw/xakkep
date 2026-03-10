@@ -1,6 +1,8 @@
 import re
 from functools import lru_cache
 
+from catalyst_parser import parse_catalyst
+
 
 _GEO_KEYWORDS = (
     "china",
@@ -209,6 +211,7 @@ def _has_deadline(text):
 
 def build_geopolitical_context(*parts):
     text = normalize_text(*parts)
+    catalyst = parse_catalyst(*parts)
     geo_matches = _match_keywords(text, _GEO_KEYWORDS)
     release_matches = _match_keywords(text, _RELEASE_ACTION_KEYWORDS)
     diplomacy_matches = _match_keywords(text, _DIPLOMACY_ACTION_KEYWORDS)
@@ -222,7 +225,20 @@ def build_geopolitical_context(*parts):
 
     action_family = "generic_geo"
     action_matches = []
-    if release_matches:
+    catalyst_family = catalyst.get("catalyst_family")
+    if catalyst_family == "release":
+        action_family = "release"
+        action_matches = release_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "diplomacy":
+        action_family = "diplomacy"
+        action_matches = diplomacy_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "regime_shift":
+        action_family = "regime_shift"
+        action_matches = regime_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif catalyst_family == "conflict":
+        action_family = "conflict"
+        action_matches = conflict_matches or list(catalyst.get("catalyst_keywords") or [])
+    elif release_matches:
         action_family = "release"
         action_matches = release_matches
     elif diplomacy_matches:
@@ -247,6 +263,7 @@ def build_geopolitical_context(*parts):
         match_score += 0.25
     if business_matches:
         match_score -= min(0.9, len(business_matches) * 0.3)
+    match_score += max(0.0, (float(catalyst.get("catalyst_strength") or 0.0) - 0.50) * 0.8)
 
     is_geopolitical = False
     if geo_matches and action_family == "conflict":
@@ -279,6 +296,14 @@ def build_geopolitical_context(*parts):
         "action_keywords": action_matches,
         "institution_keywords": institution_matches,
         "business_keywords": business_matches,
+        "catalyst_type": catalyst.get("catalyst_type"),
+        "catalyst_strength": catalyst.get("catalyst_strength"),
+        "catalyst_hardness": catalyst.get("hardness"),
+        "catalyst_reversibility": catalyst.get("reversibility"),
+        "catalyst_keywords": catalyst.get("catalyst_keywords") or [],
+        "catalyst_has_official_source": catalyst.get("has_official_source"),
+        "catalyst_source_strength": catalyst.get("source_strength"),
+        "catalyst_official_source_keywords": catalyst.get("official_source_keywords") or [],
         "has_deadline": has_deadline,
         "hard_state": hard_state,
     }
