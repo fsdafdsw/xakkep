@@ -134,6 +134,45 @@ def _extract_domain_action_family(row):
     return str(action) if action else None
 
 
+def _extract_catalyst_type(row):
+    direct = row.get("catalyst_type")
+    if direct:
+        return str(direct)
+    components = _extract_domain_components(row)
+    catalyst_type = components.get("catalyst_type")
+    return str(catalyst_type) if catalyst_type else None
+
+
+def _extract_catalyst_strength(row):
+    direct = _safe_float(row.get("catalyst_strength"))
+    if direct is not None:
+        return direct
+    components = _extract_domain_components(row)
+    return _safe_float(components.get("catalyst_strength"), default=0.0) or 0.0
+
+
+def _extract_catalyst_hardness(row):
+    direct = row.get("catalyst_hardness")
+    if direct:
+        return str(direct)
+    components = _extract_domain_components(row)
+    hardness = components.get("catalyst_hardness")
+    return str(hardness) if hardness else None
+
+
+def _extract_repricing_score(row):
+    return _safe_float(row.get("repricing_score"), default=0.0) or 0.0
+
+
+def _extract_repricing_watch_score(row):
+    return _safe_float(row.get("repricing_watch_score"), default=0.0) or 0.0
+
+
+def _extract_repricing_verdict(row):
+    verdict = row.get("repricing_verdict")
+    return str(verdict) if verdict else None
+
+
 def _default_json_output(start_date, end_date):
     return REPORTS_DIR / "research" / f"repricing_backtest_{start_date}_{end_date}.json"
 
@@ -154,6 +193,9 @@ def _row_matches_filters(row, args):
             return False
     if args.action_family and args.action_family.lower() != "any":
         if str(_extract_domain_action_family(row) or "") != args.action_family:
+            return False
+    if args.catalyst_type and args.catalyst_type.lower() != "any":
+        if str(_extract_catalyst_type(row) or "") != args.catalyst_type:
             return False
     if _extract_repricing_potential(row) < args.min_repricing_potential:
         return False
@@ -249,6 +291,7 @@ def analyze_repricing(rows, args):
     by_market_type = defaultdict(list)
     by_domain_name = defaultdict(list)
     by_action_family = defaultdict(list)
+    by_catalyst_type = defaultdict(list)
 
     for idx, row in enumerate(filtered, start=1):
         token_id = row.get("token_id")
@@ -350,7 +393,13 @@ def analyze_repricing(rows, args):
             "link": f"https://polymarket.com/event/{row.get('event_slug')}?tid={token_id}" if row.get("event_slug") else None,
             "domain_name": row.get("domain_name"),
             "domain_action_family": _extract_domain_action_family(row),
+            "catalyst_type": _extract_catalyst_type(row),
+            "catalyst_strength": _extract_catalyst_strength(row),
+            "catalyst_hardness": _extract_catalyst_hardness(row),
             "repricing_potential": _extract_repricing_potential(row),
+            "repricing_score": _extract_repricing_score(row),
+            "repricing_watch_score": _extract_repricing_watch_score(row),
+            "repricing_verdict": _extract_repricing_verdict(row),
             "market_type": row.get("market_type"),
             "category_group": row.get("category_group"),
             "decision_status": row.get("decision_status"),
@@ -373,6 +422,7 @@ def analyze_repricing(rows, args):
         by_market_type[str(analysis.get("market_type") or "unknown")].append(analysis)
         by_domain_name[str(analysis.get("domain_name") or "unknown")].append(analysis)
         by_action_family[str(analysis.get("domain_action_family") or "unknown")].append(analysis)
+        by_catalyst_type[str(analysis.get("catalyst_type") or "unknown")].append(analysis)
 
         if idx % 25 == 0:
             print(f"Processed repricing forward history: {idx}/{len(filtered)}")
@@ -387,6 +437,7 @@ def analyze_repricing(rows, args):
         by_market_type,
         by_domain_name,
         by_action_family,
+        by_catalyst_type,
     )
 
 
@@ -450,6 +501,7 @@ def parse_args():
     parser.add_argument("--market-type", default="any")
     parser.add_argument("--category-group", default="any")
     parser.add_argument("--action-family", default="any")
+    parser.add_argument("--catalyst-type", default="any")
     parser.add_argument("--min-repricing-potential", type=float, default=MIN_GEOPOLITICAL_REPRICING)
     parser.add_argument("--windows-days", default="3,7,14")
     parser.add_argument("--take-profit-levels", default="0.25,0.50")
@@ -477,6 +529,7 @@ def main():
         by_market_type,
         by_domain_name,
         by_action_family,
+        by_catalyst_type,
     ) = analyze_repricing(rows, args)
     analyses_ok = [row for row in analyses if not row.get("error")]
     print(f"Rows with forward repricing history: {len(analyses_ok)}")
@@ -494,11 +547,16 @@ def main():
         key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_action_family.items())
     }
+    by_catalyst_type_summary = {
+        key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
+        for key, value in sorted(by_catalyst_type.items())
+    }
 
     top_repricing = sorted(
         analyses_ok,
         key=lambda row: (
             row.get("best_runup_pct") if row.get("best_runup_pct") is not None else float("-inf"),
+            row.get("repricing_score") or 0.0,
             row.get("repricing_potential") or 0.0,
             row.get("confidence") or 0.0,
         ),
@@ -512,6 +570,7 @@ def main():
             "market_type": args.market_type,
             "category_group": args.category_group,
             "action_family": args.action_family,
+            "catalyst_type": args.catalyst_type,
             "min_repricing_potential": args.min_repricing_potential,
         },
         "row_count": len(rows),
@@ -526,6 +585,7 @@ def main():
         "by_market_type": by_market_type_summary,
         "by_domain_name": by_domain_name_summary,
         "by_action_family": by_action_family_summary,
+        "by_catalyst_type": by_catalyst_type_summary,
         "top_repricing": top_repricing,
         "errors": [row for row in analyses if row.get("error")],
     }
@@ -546,7 +606,8 @@ def main():
         for item in top_repricing[:5]:
             print(
                 f"- runup={item.get('best_runup_pct')} repricing={item.get('repricing_potential')} "
-                f"conf={item.get('confidence')} action={item.get('domain_action_family')}\n"
+                f"score={item.get('repricing_score')} conf={item.get('confidence')} "
+                f"action={item.get('domain_action_family')} catalyst={item.get('catalyst_type')}\n"
                 f"  {item.get('question')}"
             )
 

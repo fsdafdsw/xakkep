@@ -39,6 +39,7 @@ from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from research_dataset import build_snapshot_row, resolve_dataset_output, write_jsonl
 from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
+from repricing_selector import score_repricing_signal
 from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
 from robust_signal import compute_robust_signal
@@ -539,6 +540,21 @@ def _annotate_candidates_with_meta_model(candidates):
         candidate.model["meta_model"] = prediction
 
 
+def _annotate_candidates_with_repricing_selector(candidates):
+    for candidate in candidates:
+        prediction = score_repricing_signal(
+            entry_price=candidate.entry,
+            confidence=candidate.confidence,
+            net_edge=candidate.net_edge,
+            net_edge_lcb=candidate.net_edge_lcb,
+            spread=candidate.spread,
+            model=candidate.model,
+            market_type=candidate.market_type,
+            category_group=candidate.category_group,
+        )
+        candidate.model["repricing"] = prediction
+
+
 _STAGE_NAMES = (
     "markets_seen",
     "markets_in_time_window",
@@ -835,6 +851,7 @@ def build_candidates(
     _neutralize_candidates_by_event(selected)
     _annotate_candidates_with_graph_and_robust_signal(selected)
     _annotate_candidates_with_meta_model(selected)
+    _annotate_candidates_with_repricing_selector(selected)
 
     for candidate in selected:
         decision_map[_candidate_key(candidate)] = {

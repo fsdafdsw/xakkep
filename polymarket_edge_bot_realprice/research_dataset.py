@@ -59,6 +59,7 @@ def build_snapshot_row(candidate, decision, context):
     robust = model.get("robust") or {}
     robust_components = robust.get("components") or {}
     graph_metrics = model.get("graph") or {}
+    repricing = model.get("repricing") or {}
     pnl_per_share = realized_pnl_per_share(candidate)
 
     return {
@@ -105,7 +106,19 @@ def build_snapshot_row(candidate, decision, context):
         "domain_signal": model.get("domain_signal"),
         "domain_confidence": model.get("domain_confidence"),
         "domain_action_family": domain_components.get("action_family"),
+        "catalyst_type": domain_components.get("catalyst_type"),
+        "catalyst_strength": domain_components.get("catalyst_strength"),
+        "catalyst_hardness": domain_components.get("catalyst_hardness"),
+        "catalyst_reversibility": domain_components.get("catalyst_reversibility"),
+        "catalyst_has_official_source": domain_components.get("catalyst_has_official_source"),
         "repricing_potential": domain_components.get("repricing_potential"),
+        "repricing_score": repricing.get("score"),
+        "repricing_watch_score": repricing.get("watch_score"),
+        "repricing_verdict": repricing.get("verdict"),
+        "repricing_reason": repricing.get("reason"),
+        "repricing_attention_gap": repricing.get("attention_gap"),
+        "repricing_stale_score": repricing.get("stale_score"),
+        "repricing_already_priced_penalty": repricing.get("already_priced_penalty"),
         "semantic_family": resolution_metadata.get("family"),
         "semantic_confidence": resolution_metadata.get("confidence"),
         "relation_degree": relation_metrics.get("relation_degree"),
@@ -130,6 +143,7 @@ def build_snapshot_row(candidate, decision, context):
         "graph_metrics": graph_metrics,
         "external_components": external_components,
         "robust_components": robust_components,
+        "repricing_components": repricing,
     }
 
 

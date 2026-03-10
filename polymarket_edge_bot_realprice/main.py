@@ -15,6 +15,7 @@ from probability_model import (
     kelly_bet_fraction,
     net_edge_after_costs,
 )
+from repricing_selector import score_repricing_signal
 from robust_signal import compute_robust_signal
 from scanner import fetch_markets
 from strategy import evaluate_market
@@ -244,6 +245,15 @@ def _build_candidate(item, score_policy):
         "domain_confidence": item["metrics"].get("domain_confidence"),
         "domain_action_family": domain_components.get("action_family"),
         "repricing_potential": domain_components.get("repricing_potential"),
+        "repricing_score": None,
+        "repricing_watch_score": None,
+        "repricing_verdict": None,
+        "repricing_reason": None,
+        "repricing_attention_gap": None,
+        "repricing_stale_score": None,
+        "repricing_already_priced_penalty": None,
+        "catalyst_type": domain_components.get("catalyst_type"),
+        "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
         "odds_bookmaker_count": domain_components.get("bookmaker_count"),
         "relation_degree": relation_metrics.get("relation_degree", 0),
@@ -295,6 +305,27 @@ def _build_candidate(item, score_policy):
         candidate["meta_trade_prob"] = prediction["probability"]
         candidate["meta_trade_score"] = prediction["trade_score"]
         candidate["model"]["meta_model"] = prediction
+
+    repricing = score_repricing_signal(
+        entry_price=item["entry"],
+        confidence=confidence,
+        net_edge=item["net_edge"],
+        net_edge_lcb=net_edge_lcb,
+        spread=item["market"].get("spread"),
+        model=candidate["model"],
+        market_type=candidate["market_type"],
+        category_group=candidate["category_group"],
+    )
+    candidate["model"]["repricing"] = repricing
+    candidate["repricing_score"] = repricing.get("score")
+    candidate["repricing_watch_score"] = repricing.get("watch_score")
+    candidate["repricing_verdict"] = repricing.get("verdict")
+    candidate["repricing_reason"] = repricing.get("reason")
+    candidate["repricing_attention_gap"] = repricing.get("attention_gap")
+    candidate["repricing_stale_score"] = repricing.get("stale_score")
+    candidate["repricing_already_priced_penalty"] = repricing.get("already_priced_penalty")
+    candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
+    candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")
     return candidate
 
 
@@ -411,6 +442,13 @@ def _format_rejected(rank, candidate):
 
 
 def _radar_verdict(candidate):
+    verdict = str(candidate.get("repricing_verdict") or "")
+    if verdict == "buy_now":
+        return "BUY NOW"
+    if verdict == "watch":
+        return "WATCH, NO BUY YET"
+    if verdict == "watch_late":
+        return "WATCH, MAY BE LATE"
     source = str(candidate.get("radar_source") or "")
     if source == "value":
         return "BUY NOW"
@@ -420,6 +458,9 @@ def _radar_verdict(candidate):
 
 
 def _radar_reason(candidate):
+    repricing_reason = candidate.get("repricing_reason")
+    if repricing_reason:
+        return str(repricing_reason)
     reason = candidate.get("rejection_reason")
     if not reason:
         source = str(candidate.get("radar_source") or "")
@@ -443,9 +484,13 @@ def _radar_reason(candidate):
 
 
 def _is_geopolitical_radar_candidate(candidate):
+    repricing_verdict = str(candidate.get("repricing_verdict") or "")
     return (
         candidate.get("domain_name") == "geopolitical_repricing"
-        and (candidate.get("repricing_potential") or 0.0) >= MIN_GEOPOLITICAL_REPRICING
+        and (
+            repricing_verdict in {"buy_now", "watch", "watch_late"}
+            or (candidate.get("repricing_potential") or 0.0) >= MIN_GEOPOLITICAL_REPRICING
+        )
     )
 
 
@@ -470,6 +515,8 @@ def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, exclud
 
     merged.sort(
         key=lambda x: (
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_potential") or 0.0),
             -(x.get("confidence") or 0.0),
             -(x.get("net_edge") or -999.0),
@@ -483,16 +530,25 @@ def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
     verdict = _radar_verdict(candidate)
     reason = _radar_reason(candidate)
+    lines.append(f"Verdict: {verdict}")
+    catalyst_bits = []
+    if candidate.get("catalyst_type"):
+        catalyst_bits.append(f"Catalyst: {candidate['catalyst_type']}")
+    if candidate.get("catalyst_strength") is not None:
+        catalyst_bits.append(f"Strength: {candidate['catalyst_strength']:.2f}")
+    if candidate.get("repricing_score") is not None:
+        catalyst_bits.append(f"Score: {candidate['repricing_score']:.2f}")
+    if catalyst_bits:
+        lines.append(" | ".join(catalyst_bits))
     lines.append(
-        f"Verdict: {verdict}"
-    )
-    lines.append(
-        f"Theme: {candidate.get('domain_name') or 'neutral'} | Action: {candidate.get('domain_action_family') or 'generic'} | Repricing score: {candidate.get('repricing_potential', 0.0):.2f}"
+        f"Theme: {candidate.get('domain_name') or 'neutral'} | Action: {candidate.get('domain_action_family') or 'generic'} | Repricing potential: {candidate.get('repricing_potential', 0.0):.2f}"
     )
     lines.append(
         f"Price now: {candidate['entry']:.3f} | Model fair: {candidate['fair']:.3f} | Net edge: {candidate['net_edge']:.3f}"
     )
     details = [f"Confidence: {candidate['confidence']:.2f}", f"Reason: {reason}"]
+    if candidate.get("repricing_attention_gap") is not None:
+        details.append(f"Attention gap: {candidate['repricing_attention_gap']:.2f}")
     if candidate.get("rejection_reason"):
         details.append(f"Gap to pass: {candidate.get('diagnostic_shortfall', 0.0):.3f}")
     lines.append(" | ".join(details))
