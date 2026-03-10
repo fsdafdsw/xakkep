@@ -282,7 +282,11 @@ def _is_quote_or_speech_market(text):
 def build_geopolitical_context(*parts):
     question_text = normalize_text(parts[0] if parts else "")
     text = normalize_text(*parts)
-    catalyst = parse_catalyst(*parts)
+    catalyst = parse_catalyst(
+        parts[0] if parts else "",
+        parts[1] if len(parts) > 1 else "",
+        parts[4] if len(parts) > 4 else "",
+    )
     geo_matches = _match_keywords(text, _GEO_KEYWORDS)
     question_geo_matches = _match_keywords(question_text, _GEO_KEYWORDS)
     release_matches = _match_keywords(text, _RELEASE_ACTION_KEYWORDS)
@@ -398,6 +402,7 @@ def build_geopolitical_context(*parts):
         "release_context_keywords": release_context_matches,
         "release_figure_keywords": release_figure_matches,
         "catalyst_type": catalyst.get("catalyst_type"),
+        "catalyst_family": catalyst.get("catalyst_family"),
         "catalyst_strength": catalyst.get("catalyst_strength"),
         "catalyst_hardness": catalyst.get("hardness"),
         "catalyst_reversibility": catalyst.get("reversibility"),
