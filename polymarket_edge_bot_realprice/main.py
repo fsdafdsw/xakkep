@@ -831,7 +831,7 @@ def _build_talk_call_watchlist(value_bets, watchlist, rejected_candidates):
     return rows[:MAX_TALK_CALL_WATCHLIST]
 
 
-def _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates):
+def _collect_call_meeting_candidates(value_bets, watchlist, rejected_candidates):
     rows = []
     seen = set()
     for source_name, candidates in (
@@ -857,12 +857,42 @@ def _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates):
             rows.append(item)
             seen.add(link)
 
+    return rows
+
+
+def _build_meeting_watchlist(value_bets, watchlist, rejected_candidates):
+    rows = [
+        row
+        for row in _collect_call_meeting_candidates(value_bets, watchlist, rejected_candidates)
+        if str(row.get("meeting_subtype") or "") in {"meeting", "meeting_generic"}
+    ]
+
+    rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_watch_score") or 0.0),
+            -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("repricing_optionality_score") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            (x.get("repricing_already_priced_penalty") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return rows[:MAX_CALL_MEETING_WATCHLIST]
+
+
+def _build_resume_talks_watchlist(value_bets, watchlist, rejected_candidates):
+    rows = [
+        row
+        for row in _collect_call_meeting_candidates(value_bets, watchlist, rejected_candidates)
+        if str(row.get("meeting_subtype") or "") == "resume_talks"
+    ]
+
     rows.sort(
         key=lambda x: (
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
-            -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("repricing_score") or 0.0),
             -(x.get("confidence") or 0.0),
         )
     )
@@ -1222,15 +1252,26 @@ def run():
         and candidate.get("link") not in ceasefire_links
     ]
     talk_call_links = {candidate.get("link") for candidate in talk_call_watchlist if candidate.get("link")}
-    call_meeting_watchlist = [
+    meeting_watchlist = [
         candidate
-        for candidate in _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates)
+        for candidate in _build_meeting_watchlist(value_bets, watchlist, rejected_candidates)
         if candidate.get("link") not in legal_links
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
         and candidate.get("link") not in ceasefire_links
         and candidate.get("link") not in talk_call_links
     ]
+    resume_talks_watchlist = [
+        candidate
+        for candidate in _build_resume_talks_watchlist(value_bets, watchlist, rejected_candidates)
+        if candidate.get("link") not in legal_links
+        and candidate.get("link") not in release_buy_links
+        and candidate.get("link") not in release_links
+        and candidate.get("link") not in ceasefire_links
+        and candidate.get("link") not in talk_call_links
+        and candidate.get("link") not in {item.get("link") for item in meeting_watchlist if item.get("link")}
+    ]
+    call_meeting_watchlist = meeting_watchlist + resume_talks_watchlist
     call_meeting_links = {candidate.get("link") for candidate in call_meeting_watchlist if candidate.get("link")}
     hostage_negotiation_watchlist = [
         candidate
@@ -1288,11 +1329,25 @@ def run():
         if talk_call_watchlist
         else "none"
     )
-    call_meeting_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(call_meeting_watchlist))
-        if call_meeting_watchlist
+    meeting_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(meeting_watchlist))
+        if meeting_watchlist
         else "none"
     )
+    resume_talks_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(resume_talks_watchlist))
+        if resume_talks_watchlist
+        else "none"
+    )
+    if meeting_watchlist or resume_talks_watchlist:
+        call_meeting_text = (
+            "Meeting setups\n\n"
+            f"{meeting_text}\n\n"
+            "Talks resume\n\n"
+            f"{resume_talks_text}"
+        )
+    else:
+        call_meeting_text = "none"
     hostage_negotiation_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(hostage_negotiation_watchlist))
         if hostage_negotiation_watchlist
@@ -1384,6 +1439,8 @@ Geopolitical Repricing Radar
         "release_watchlist": release_watchlist,
         "ceasefire_watchlist": ceasefire_watchlist,
         "talk_call_watchlist": talk_call_watchlist,
+        "meeting_watchlist": meeting_watchlist,
+        "resume_talks_watchlist": resume_talks_watchlist,
         "call_meeting_watchlist": call_meeting_watchlist,
         "hostage_negotiation_watchlist": hostage_negotiation_watchlist,
         "high_upside_watchlist": high_upside_watchlist,
