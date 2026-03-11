@@ -529,6 +529,23 @@ def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, exclud
     return merged[:MAX_GEOPOLITICAL_RADAR]
 
 
+def _build_high_upside_watchlist(geopolitical_radar):
+    high_upside = [
+        dict(candidate)
+        for candidate in geopolitical_radar
+        if str(candidate.get("repricing_verdict") or "") == "watch_high_upside"
+    ]
+    high_upside.sort(
+        key=lambda x: (
+            -(x.get("repricing_optionality_score") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_potential") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return high_upside[:MAX_HIGH_UPSIDE_WATCHLIST]
+
+
 def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
     verdict = _radar_verdict(candidate)
@@ -771,14 +788,22 @@ def run():
     displayed_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
     displayed_links.update(candidate.get("link") for candidate in near_candidates if candidate.get("link"))
     geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
+    high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
+    high_upside_links = {candidate.get("link") for candidate in high_upside_watchlist if candidate.get("link")}
+    geopolitical_radar_core = [candidate for candidate in geopolitical_radar if candidate.get("link") not in high_upside_links]
+    high_upside_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(high_upside_watchlist))
+        if high_upside_watchlist
+        else "none"
+    )
     radar_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(geopolitical_radar))
-        if geopolitical_radar
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(geopolitical_radar_core))
+        if geopolitical_radar_core
         else "none"
     )
 
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    day_summary = f"Today: {len(value_bets)} buys | {len(geopolitical_radar)} radar ideas"
+    day_summary = f"Today: {len(value_bets)} buys | {len(high_upside_watchlist)} high-upside watches | {len(geopolitical_radar_core)} radar ideas"
     report = f"""Polymarket edge scan - {utc_now}
 {day_summary}
 
@@ -789,6 +814,10 @@ Price coverage: {coverage['price_available']}/{len(markets)} | Orderbook coverag
 Top recommendations
 
 {signals}
+
+High-Upside Watchlist
+
+{high_upside_text}
 
 Geopolitical Repricing Radar
 
@@ -810,7 +839,8 @@ Geopolitical Repricing Radar
         "price_coverage": coverage["price_available"],
         "orderbook_coverage": coverage["book_available"],
         "value_bets": value_bets,
-        "geopolitical_radar": geopolitical_radar,
+        "high_upside_watchlist": high_upside_watchlist,
+        "geopolitical_radar": geopolitical_radar_core,
         "near_misses": near_candidates,
         "diagnostic_candidates": diagnostic_candidates,
         "rejects": rejects,

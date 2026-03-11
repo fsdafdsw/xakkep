@@ -1,8 +1,12 @@
 from config import (
+    CONFLICT_REPRICING_BUY_SCORE,
+    DIPLOMACY_HIGH_UPSIDE_OPTIONALITY,
+    DIPLOMACY_REPRICING_BUY_SCORE,
     MAX_SPREAD,
     MAX_REPRICING_BUY_PRICE,
     MIN_REPRICING_BUY_SCORE,
     MIN_REPRICING_WATCH_SCORE,
+    RELEASE_REPRICING_BUY_SCORE,
 )
 from repricing_context import build_repricing_context
 
@@ -24,6 +28,75 @@ def _domain_components(model):
     external = (model or {}).get("external_components") or {}
     domain = external.get("domain") or {}
     return domain.get("components") or {}
+
+
+def _family_policy(action_family, catalyst_hardness):
+    policy = {
+        "buy_threshold": MIN_REPRICING_BUY_SCORE,
+        "watch_threshold": MIN_REPRICING_WATCH_SCORE,
+        "min_underreaction": 0.48,
+        "min_fresh": 0.58,
+        "max_chase": 0.16,
+        "max_already_priced": 0.34,
+        "high_upside_optionality": 0.70,
+        "high_upside_max_chase": 0.10,
+        "high_upside_max_already_priced": 0.22,
+        "allow_high_upside": True,
+        "require_hard_for_buy": False,
+        "require_official_source_for_buy": False,
+    }
+
+    if action_family == "conflict":
+        policy.update(
+            {
+                "buy_threshold": CONFLICT_REPRICING_BUY_SCORE,
+                "min_underreaction": 0.52,
+                "min_fresh": 0.66,
+                "max_chase": 0.10,
+                "max_already_priced": 0.24,
+                "allow_high_upside": False,
+            }
+        )
+    elif action_family == "diplomacy":
+        policy.update(
+            {
+                "buy_threshold": DIPLOMACY_REPRICING_BUY_SCORE,
+                "min_underreaction": 0.58,
+                "min_fresh": 0.70 if catalyst_hardness == "hard" else 0.78,
+                "max_chase": 0.08,
+                "max_already_priced": 0.20,
+                "high_upside_optionality": DIPLOMACY_HIGH_UPSIDE_OPTIONALITY,
+                "high_upside_max_chase": 0.12,
+                "high_upside_max_already_priced": 0.26,
+                "allow_high_upside": True,
+                "require_hard_for_buy": True,
+                "require_official_source_for_buy": True,
+            }
+        )
+    elif action_family == "release":
+        policy.update(
+            {
+                "buy_threshold": RELEASE_REPRICING_BUY_SCORE,
+                "min_underreaction": 0.50,
+                "min_fresh": 0.62,
+                "max_chase": 0.12,
+                "max_already_priced": 0.28,
+                "allow_high_upside": True,
+            }
+        )
+    elif action_family == "regime_shift":
+        policy.update(
+            {
+                "buy_threshold": max(MIN_REPRICING_BUY_SCORE, 0.80),
+                "min_underreaction": 0.54,
+                "min_fresh": 0.68,
+                "max_chase": 0.10,
+                "max_already_priced": 0.22,
+                "allow_high_upside": True,
+            }
+        )
+
+    return policy
 
 
 def score_repricing_signal(
@@ -153,29 +226,43 @@ def score_repricing_signal(
     )
     score = _clamp(score)
     watch_score = _clamp(watch_score)
+    family_policy = _family_policy(components.get("action_family"), catalyst_hardness)
     clean_entry = (
         entry_price <= MAX_REPRICING_BUY_PRICE
-        and underreaction_score >= 0.48
-        and fresh_catalyst_score >= 0.58
-        and trend_chase_penalty <= 0.16
-        and already_priced_penalty <= 0.34
+        and underreaction_score >= family_policy["min_underreaction"]
+        and fresh_catalyst_score >= family_policy["min_fresh"]
+        and trend_chase_penalty <= family_policy["max_chase"]
+        and already_priced_penalty <= family_policy["max_already_priced"]
+        and (
+            not family_policy["require_hard_for_buy"]
+            or catalyst_hardness == "hard"
+        )
+        and (
+            not family_policy["require_official_source_for_buy"]
+            or catalyst_has_official_source
+        )
     )
 
     verdict = "ignore"
     reason = "repricing score too low"
-    if score >= MIN_REPRICING_BUY_SCORE and clean_entry:
+    if score >= family_policy["buy_threshold"] and clean_entry:
         verdict = "buy_now"
         reason = "fresh catalyst and market still underreacted"
-    elif watch_score >= MIN_REPRICING_WATCH_SCORE:
+    elif watch_score >= family_policy["watch_threshold"]:
         if (
-            catalyst_hardness != "hard"
-            and optionality_score >= 0.66
-            and trend_chase_penalty <= 0.10
-            and already_priced_penalty <= 0.22
+            family_policy["allow_high_upside"]
+            and catalyst_hardness != "hard"
+            and optionality_score >= family_policy["high_upside_optionality"]
+            and trend_chase_penalty <= family_policy["high_upside_max_chase"]
+            and already_priced_penalty <= family_policy["high_upside_max_already_priced"]
         ):
             verdict = "watch_high_upside"
             reason = "large repricing optionality, but catalyst still soft"
-        if entry_price > MAX_REPRICING_BUY_PRICE or trend_chase_penalty > 0.16 or already_priced_penalty > 0.34:
+        if (
+            entry_price > MAX_REPRICING_BUY_PRICE
+            or trend_chase_penalty > family_policy["max_chase"]
+            or already_priced_penalty > family_policy["max_already_priced"]
+        ):
             verdict = "watch_late"
             reason = "strong catalyst, but recent move suggests part of repricing is gone"
         elif verdict != "watch_high_upside":
@@ -205,6 +292,7 @@ def score_repricing_signal(
         "compression_score": repricing_context["compression_score"],
         "deadline_pressure": repricing_context["deadline_pressure"],
         "book_quality": repricing_context["book_quality"],
+        "family_policy": family_policy,
         "catalyst_type": catalyst_type,
         "catalyst_strength": catalyst_strength,
         "action_family": components.get("action_family"),
