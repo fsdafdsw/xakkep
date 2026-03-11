@@ -78,6 +78,13 @@ def _research_action(snapshot_row, repricing_row):
     if not snapshot_row:
         return "rebuild_snapshot_window"
     if not repricing_row:
+        entry_price = _safe_float(snapshot_row.get("entry_price") or snapshot_row.get("market_implied"))
+        repricing_potential = _safe_float(snapshot_row.get("repricing_potential"), default=0.0) or 0.0
+        repricing_verdict = str(snapshot_row.get("repricing_verdict") or "")
+        if entry_price is not None and entry_price >= 0.85:
+            return "skip_late_snapshot"
+        if repricing_verdict == "ignore" and repricing_potential < 0.60:
+            return "skip_weak_snapshot"
         return "run_repricing_backtest"
     history_quality = _history_quality(repricing_row)
     if history_quality == "real_forward":
