@@ -435,25 +435,10 @@ def _record_rejected(rejected_candidates, candidate, reason):
 
 
 def _format_rejected(rank, candidate):
-    reason_label = str(candidate["rejection_reason"]).replace("_", " ")
     lines = _header_lines(rank, candidate)
-    lines.append(f"Blocked by {reason_label} | Shortfall {candidate['diagnostic_shortfall']:.3f}")
-    lines.append(
-        f"Entry {candidate['entry']:.3f} | Fair {candidate['fair']:.3f} | Gross edge {candidate['gross_edge']:.3f} | Net edge {candidate['net_edge']:.3f}"
-    )
-    theme_bits = f"Theme {candidate.get('domain_name') or 'neutral'}"
-    if candidate.get("domain_action_family"):
-        theme_bits += f" | action={candidate['domain_action_family']}"
-    if candidate.get("repricing_potential") is not None:
-        theme_bits += f" | repricing={candidate['repricing_potential']:.2f}"
-    relation_bits = ""
-    if candidate.get("relation_degree"):
-        relation_bits = f" | relations={candidate['relation_degree']}"
-    meta_bits = ""
-    if candidate.get("meta_trade_prob") is not None:
-        meta_bits = f" | meta_p={candidate['meta_trade_prob']:.2f}"
-    lines.append(theme_bits)
-    lines.append(f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{relation_bits}")
+    lines.append("Verdict: DO NOT BUY")
+    lines.append(f"Why: {_radar_reason(candidate).capitalize()}")
+    lines.append(f"Price now: {candidate['entry']:.3f}")
     return "\n".join(lines)
 
 
@@ -549,38 +534,8 @@ def _format_geopolitical_radar(rank, candidate):
     verdict = _radar_verdict(candidate)
     reason = _radar_reason(candidate)
     lines.append(f"Verdict: {verdict}")
-    catalyst_bits = []
-    if candidate.get("catalyst_type"):
-        catalyst_bits.append(f"Catalyst: {candidate['catalyst_type']}")
-    if candidate.get("catalyst_strength") is not None:
-        catalyst_bits.append(f"Strength: {candidate['catalyst_strength']:.2f}")
-    if candidate.get("repricing_score") is not None:
-        catalyst_bits.append(f"Score: {candidate['repricing_score']:.2f}")
-    if catalyst_bits:
-        lines.append(" | ".join(catalyst_bits))
-    lines.append(
-        f"Theme: {candidate.get('domain_name') or 'neutral'} | Action: {candidate.get('domain_action_family') or 'generic'} | Repricing potential: {candidate.get('repricing_potential', 0.0):.2f}"
-    )
-    lines.append(
-        f"Price now: {candidate['entry']:.3f} | Model fair: {candidate['fair']:.3f} | Net edge: {candidate['net_edge']:.3f}"
-    )
-    setup_bits = []
-    if candidate.get("repricing_underreaction_score") is not None:
-        setup_bits.append(f"Underreaction {candidate['repricing_underreaction_score']:.2f}")
-    if candidate.get("repricing_fresh_catalyst_score") is not None:
-        setup_bits.append(f"Fresh catalyst {candidate['repricing_fresh_catalyst_score']:.2f}")
-    if candidate.get("repricing_trend_chase_penalty") is not None:
-        setup_bits.append(f"Chase risk {candidate['repricing_trend_chase_penalty']:.2f}")
-    if candidate.get("repricing_optionality_score") is not None:
-        setup_bits.append(f"Optionality {candidate['repricing_optionality_score']:.2f}")
-    if setup_bits:
-        lines.append("Setup: " + " | ".join(setup_bits))
-    details = [f"Confidence: {candidate['confidence']:.2f}", f"Reason: {reason}"]
-    if candidate.get("repricing_attention_gap") is not None:
-        details.append(f"Attention gap: {candidate['repricing_attention_gap']:.2f}")
-    if candidate.get("rejection_reason"):
-        details.append(f"Gap to pass: {candidate.get('diagnostic_shortfall', 0.0):.3f}")
-    lines.append(" | ".join(details))
+    lines.append(f"Why: {reason.capitalize()}")
+    lines.append(f"Price now: {candidate['entry']:.3f}")
     return "\n".join(lines)
 
 
