@@ -15,6 +15,8 @@ from config import (
     RELEASE_HEARING_MIN_LEGITIMACY_SCORE,
     RELEASE_HEARING_MIN_SUBJECT_SCORE,
     RELEASE_HOSTAGE_BUY_SCORE,
+    RELEASE_HOSTAGE_WATCH_ONLY,
+    RELEASE_HOSTAGE_WATCH_SCORE,
     RELEASE_HOSTAGE_MIN_LEGITIMACY_SCORE,
     RELEASE_HOSTAGE_MIN_SUBJECT_SCORE,
     RELEASE_MIN_LEGITIMACY_SCORE,
@@ -55,6 +57,7 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
         "high_upside_max_chase": 0.10,
         "high_upside_max_already_priced": 0.22,
         "allow_high_upside": True,
+        "allow_buy_now": True,
         "require_hard_for_buy": False,
         "require_official_source_for_buy": False,
         "min_setup_score": 0.0,
@@ -123,10 +126,12 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
             policy.update(
                 {
                     "buy_threshold": RELEASE_HOSTAGE_BUY_SCORE,
+                    "watch_threshold": RELEASE_HOSTAGE_WATCH_SCORE,
                     "min_underreaction": 0.54,
                     "min_fresh": 0.68,
                     "max_chase": 0.10,
                     "max_already_priced": 0.16,
+                    "allow_buy_now": not RELEASE_HOSTAGE_WATCH_ONLY,
                     "min_setup_score": RELEASE_HOSTAGE_MIN_SUBJECT_SCORE,
                     "min_urgency_score": RELEASE_HOSTAGE_MIN_LEGITIMACY_SCORE,
                     "family_bonus": RELEASE_FAST_LANE_BONUS,
@@ -393,7 +398,8 @@ def score_repricing_signal(
 
     verdict = "ignore"
     reason = "repricing score too low"
-    if score >= family_policy["buy_threshold"] and clean_entry:
+    buy_ready = score >= family_policy["buy_threshold"] and clean_entry
+    if buy_ready and family_policy["allow_buy_now"]:
         verdict = "buy_now"
         if action_family == "release" and catalyst_type in {"hearing", "court_ruling", "appeal"}:
             reason = "hard legal catalyst and market still underreacted"
@@ -401,6 +407,9 @@ def score_repricing_signal(
             reason = "credible hostage-release setup with room left in pricing"
         else:
             reason = "fresh catalyst and market still underreacted"
+    elif buy_ready and not family_policy["allow_buy_now"]:
+        verdict = "watch"
+        reason = "credible hostage-release setup, but this family stays watch-only"
     elif watch_score >= family_policy["watch_threshold"]:
         if (
             family_policy["allow_high_upside"]
@@ -420,7 +429,10 @@ def score_repricing_signal(
             reason = "strong catalyst, but recent move suggests part of repricing is gone"
         elif verdict != "watch_high_upside":
             verdict = "watch"
-            reason = "strong catalyst, but waiting for cleaner entry or confirmation"
+            if action_family == "release" and catalyst_type == "hostage_release":
+                reason = "credible hostage-release setup, but waiting for confirmation"
+            else:
+                reason = "strong catalyst, but waiting for cleaner entry or confirmation"
     elif trend_chase_penalty >= 0.32:
         reason = "market already moved too much for a clean repricing entry"
     elif underreaction_score < 0.35:
