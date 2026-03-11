@@ -497,6 +497,33 @@ def _radar_verdict(candidate):
 
 def _radar_reason(candidate):
     repricing_reason = candidate.get("repricing_reason")
+    action_family = str(candidate.get("domain_action_family") or "")
+    catalyst_type = str(candidate.get("catalyst_type") or "")
+    verdict = str(candidate.get("repricing_verdict") or "")
+
+    if action_family == "release" and catalyst_type == "hostage_release":
+        if verdict == "watch":
+            return "possible hostage-release setup, but it still needs confirmation"
+        if verdict == "watch_high_upside":
+            return "hostage-release idea has upside, but confirmation is still missing"
+        if verdict == "watch_late":
+            return "hostage-release setup looks real, but part of the move may already be gone"
+        if verdict == "buy_now":
+            return "hostage-release setup looks credible and still has room to move"
+
+    if action_family == "diplomacy":
+        if catalyst_type == "ceasefire":
+            if verdict == "watch_late":
+                return "ceasefire talks matter here, but the market may already have reacted"
+            return "ceasefire talks matter here, but confirmation is still missing"
+        if catalyst_type in {"negotiation", "call_or_meeting", "summit"}:
+            if verdict == "watch_high_upside":
+                return "talks theme has upside, but the catalyst is still soft"
+            if verdict == "watch_late":
+                return "meeting or negotiation theme is live, but part of the move may be gone"
+            if verdict == "watch":
+                return "meeting or negotiation theme is interesting, but not confirmed yet"
+
     if repricing_reason:
         return str(repricing_reason)
     reason = candidate.get("rejection_reason")
