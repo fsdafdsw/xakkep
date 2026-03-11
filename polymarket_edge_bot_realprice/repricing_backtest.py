@@ -7,6 +7,7 @@ from pathlib import Path
 from backtest import (
     _parse_date_to_ts,
     build_candidates,
+    change_over,
     fetch_closed_events,
     fetch_price_history,
     find_total_closed_events,
@@ -14,7 +15,9 @@ from backtest import (
     write_jsonl,
 )
 from calibration_report import load_jsonl
+from catalyst_parser import parse_catalyst
 from config import MIN_GEOPOLITICAL_REPRICING, REPORTS_DIR
+from repricing_selector import score_repricing_signal
 
 
 def _safe_float(value, default=None):
@@ -177,6 +180,51 @@ def _extract_repricing_metric(row, key, default=0.0):
     return _safe_float(row.get(key), default=default) or 0.0
 
 
+def _rebuild_repricing_prediction(row, *, one_hour_change, one_day_change, one_week_change, hours_to_close):
+    domain_components = dict(_extract_domain_components(row))
+    direct_potential = _safe_float(row.get("repricing_potential"))
+    if direct_potential is not None:
+        domain_components["repricing_potential"] = direct_potential
+
+    catalyst = parse_catalyst(row.get("question"))
+    if catalyst:
+        domain_components.setdefault("catalyst_type", catalyst.get("catalyst_type"))
+        domain_components.setdefault("action_family", catalyst.get("catalyst_family"))
+        domain_components.setdefault("catalyst_strength", catalyst.get("catalyst_strength"))
+        domain_components.setdefault("catalyst_hardness", catalyst.get("catalyst_hardness"))
+        domain_components.setdefault("catalyst_reversibility", catalyst.get("catalyst_reversibility"))
+        domain_components.setdefault("catalyst_has_official_source", catalyst.get("catalyst_has_official_source"))
+
+    external_components = row.get("external_components") or {}
+    model = {
+        "domain_name": row.get("domain_name"),
+        "domain_confidence": _safe_float(row.get("domain_confidence"), default=0.5) or 0.5,
+        "external_components": {
+            "domain": {
+                "components": domain_components,
+            },
+            "relation_residual": external_components.get("relation_residual") or {},
+        },
+    }
+
+    return score_repricing_signal(
+        entry_price=_safe_float(row.get("entry_price") or row.get("market_implied"), default=0.5) or 0.5,
+        confidence=_safe_float(row.get("confidence"), default=0.5) or 0.5,
+        net_edge=_safe_float(row.get("net_edge"), default=0.0) or 0.0,
+        net_edge_lcb=_safe_float(row.get("net_edge_lcb"), default=0.0) or 0.0,
+        spread=_safe_float(row.get("spread"), default=0.0) or 0.0,
+        liquidity=domain_components.get("liquidity"),
+        volume24h=domain_components.get("volume24h"),
+        one_hour_change=one_hour_change,
+        one_day_change=one_day_change,
+        one_week_change=one_week_change,
+        hours_to_close=hours_to_close,
+        model=model,
+        market_type=row.get("market_type"),
+        category_group=row.get("category_group"),
+    )
+
+
 def _default_json_output(start_date, end_date):
     return REPORTS_DIR / "research" / f"repricing_backtest_{start_date}_{end_date}.json"
 
@@ -306,9 +354,10 @@ def analyze_repricing(rows, args):
         if not token_id or entry_ts is None or settle_ts is None or entry_price is None:
             continue
 
+        history_start_ts = max(0, entry_ts - (args.pre_entry_lookback_days * 24 * 3600))
         forward_end_ts = min(settle_ts, entry_ts + (max_window_days * 24 * 3600))
         try:
-            history = fetch_price_history(token_id, entry_ts, forward_end_ts, fidelity=args.history_fidelity)
+            history = fetch_price_history(token_id, history_start_ts, forward_end_ts, fidelity=args.history_fidelity)
         except RuntimeError as exc:
             analyses.append(
                 {
@@ -325,6 +374,18 @@ def analyze_repricing(rows, args):
         forward_history = [(ts, price) for ts, price in history if ts >= entry_ts]
         if not forward_history or forward_history[0][0] != entry_ts:
             forward_history = [(entry_ts, entry_price)] + forward_history
+
+        one_hour_change = change_over(history, entry_ts, 3600)
+        one_day_change = change_over(history, entry_ts, 24 * 3600)
+        one_week_change = change_over(history, entry_ts, 7 * 24 * 3600)
+        hours_to_close = max(0.0, (settle_ts - entry_ts) / 3600.0)
+        rebuilt_repricing = _rebuild_repricing_prediction(
+            row,
+            one_hour_change=one_hour_change,
+            one_day_change=one_day_change,
+            one_week_change=one_week_change,
+            hours_to_close=hours_to_close,
+        )
 
         windows = {}
         runups = []
@@ -402,20 +463,22 @@ def analyze_repricing(rows, args):
             "catalyst_strength": _extract_catalyst_strength(row),
             "catalyst_hardness": _extract_catalyst_hardness(row),
             "repricing_potential": _extract_repricing_potential(row),
-            "repricing_score": _extract_repricing_score(row),
-            "repricing_watch_score": _extract_repricing_watch_score(row),
-            "repricing_verdict": _extract_repricing_verdict(row),
-            "repricing_attention_gap": _extract_repricing_metric(row, "repricing_attention_gap"),
-            "repricing_underreaction_score": _extract_repricing_metric(row, "repricing_underreaction_score"),
-            "repricing_fresh_catalyst_score": _extract_repricing_metric(row, "repricing_fresh_catalyst_score"),
-            "repricing_trend_chase_penalty": _extract_repricing_metric(row, "repricing_trend_chase_penalty"),
-            "repricing_recent_runup": _extract_repricing_metric(row, "repricing_recent_runup"),
-            "repricing_recent_selloff": _extract_repricing_metric(row, "repricing_recent_selloff"),
-            "repricing_compression_score": _extract_repricing_metric(row, "repricing_compression_score"),
-            "repricing_deadline_pressure": _extract_repricing_metric(row, "repricing_deadline_pressure"),
-            "repricing_book_quality": _extract_repricing_metric(row, "repricing_book_quality"),
-            "repricing_stale_score": _extract_repricing_metric(row, "repricing_stale_score"),
-            "repricing_already_priced_penalty": _extract_repricing_metric(row, "repricing_already_priced_penalty"),
+            "repricing_score": rebuilt_repricing.get("score", _extract_repricing_score(row)),
+            "repricing_watch_score": rebuilt_repricing.get("watch_score", _extract_repricing_watch_score(row)),
+            "repricing_verdict": rebuilt_repricing.get("verdict", _extract_repricing_verdict(row)),
+            "repricing_reason": rebuilt_repricing.get("reason") or row.get("repricing_reason"),
+            "repricing_attention_gap": rebuilt_repricing.get("attention_gap", _extract_repricing_metric(row, "repricing_attention_gap")),
+            "repricing_underreaction_score": rebuilt_repricing.get("underreaction_score", _extract_repricing_metric(row, "repricing_underreaction_score")),
+            "repricing_fresh_catalyst_score": rebuilt_repricing.get("fresh_catalyst_score", _extract_repricing_metric(row, "repricing_fresh_catalyst_score")),
+            "repricing_trend_chase_penalty": rebuilt_repricing.get("trend_chase_penalty", _extract_repricing_metric(row, "repricing_trend_chase_penalty")),
+            "repricing_optionality_score": rebuilt_repricing.get("optionality_score", _extract_repricing_metric(row, "repricing_optionality_score")),
+            "repricing_recent_runup": rebuilt_repricing.get("recent_runup", _extract_repricing_metric(row, "repricing_recent_runup")),
+            "repricing_recent_selloff": rebuilt_repricing.get("recent_selloff", _extract_repricing_metric(row, "repricing_recent_selloff")),
+            "repricing_compression_score": rebuilt_repricing.get("compression_score", _extract_repricing_metric(row, "repricing_compression_score")),
+            "repricing_deadline_pressure": rebuilt_repricing.get("deadline_pressure", _extract_repricing_metric(row, "repricing_deadline_pressure")),
+            "repricing_book_quality": rebuilt_repricing.get("book_quality", _extract_repricing_metric(row, "repricing_book_quality")),
+            "repricing_stale_score": rebuilt_repricing.get("stale_score", _extract_repricing_metric(row, "repricing_stale_score")),
+            "repricing_already_priced_penalty": rebuilt_repricing.get("already_priced_penalty", _extract_repricing_metric(row, "repricing_already_priced_penalty")),
             "market_type": row.get("market_type"),
             "category_group": row.get("category_group"),
             "decision_status": row.get("decision_status"),
@@ -425,6 +488,10 @@ def analyze_repricing(rows, args):
             "settle_ts": settle_ts,
             "settle_utc": row.get("settle_utc") or _to_utc_str(settle_ts),
             "entry_price": entry_price,
+            "one_hour_change": one_hour_change,
+            "one_day_change": one_day_change,
+            "one_week_change": one_week_change,
+            "hours_to_close": hours_to_close,
             "confidence": _safe_float(row.get("confidence")),
             "fair": _safe_float(row.get("fair")),
             "net_edge": _safe_float(row.get("net_edge")),
@@ -468,6 +535,7 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conf
             "underreaction_score": _distribution([row.get("repricing_underreaction_score") for row in rows]),
             "fresh_catalyst_score": _distribution([row.get("repricing_fresh_catalyst_score") for row in rows]),
             "trend_chase_penalty": _distribution([row.get("repricing_trend_chase_penalty") for row in rows]),
+            "optionality_score": _distribution([row.get("repricing_optionality_score") for row in rows]),
             "recent_runup": _distribution([row.get("repricing_recent_runup") for row in rows]),
             "recent_selloff": _distribution([row.get("repricing_recent_selloff") for row in rows]),
             "compression_score": _distribution([row.get("repricing_compression_score") for row in rows]),
@@ -540,6 +608,7 @@ def parse_args():
     parser.add_argument("--conflict-runup-levels", default="0.10,0.25")
     parser.add_argument("--conflict-target-prices", default="0.40,0.60")
     parser.add_argument("--top-limit", type=int, default=10)
+    parser.add_argument("--pre-entry-lookback-days", type=int, default=7)
     return parser.parse_args()
 
 

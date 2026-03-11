@@ -255,6 +255,7 @@ def _build_candidate(item, score_policy):
         "repricing_underreaction_score": None,
         "repricing_fresh_catalyst_score": None,
         "repricing_trend_chase_penalty": None,
+        "repricing_optionality_score": None,
         "repricing_recent_runup": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
@@ -337,6 +338,7 @@ def _build_candidate(item, score_policy):
     candidate["repricing_underreaction_score"] = repricing.get("underreaction_score")
     candidate["repricing_fresh_catalyst_score"] = repricing.get("fresh_catalyst_score")
     candidate["repricing_trend_chase_penalty"] = repricing.get("trend_chase_penalty")
+    candidate["repricing_optionality_score"] = repricing.get("optionality_score")
     candidate["repricing_recent_runup"] = repricing.get("recent_runup")
     candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
     candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")
@@ -461,6 +463,8 @@ def _radar_verdict(candidate):
         return "BUY NOW"
     if verdict == "watch":
         return "WATCH, NO BUY YET"
+    if verdict == "watch_high_upside":
+        return "WATCH CLOSELY, HIGH UPSIDE"
     if verdict == "watch_late":
         return "WATCH, MAY BE LATE"
     source = str(candidate.get("radar_source") or "")
@@ -502,7 +506,7 @@ def _is_geopolitical_radar_candidate(candidate):
     return (
         candidate.get("domain_name") == "geopolitical_repricing"
         and (
-            repricing_verdict in {"buy_now", "watch", "watch_late"}
+            repricing_verdict in {"buy_now", "watch", "watch_high_upside", "watch_late"}
             or (candidate.get("repricing_potential") or 0.0) >= MIN_GEOPOLITICAL_REPRICING
         )
     )
@@ -567,6 +571,8 @@ def _format_geopolitical_radar(rank, candidate):
         setup_bits.append(f"Fresh catalyst {candidate['repricing_fresh_catalyst_score']:.2f}")
     if candidate.get("repricing_trend_chase_penalty") is not None:
         setup_bits.append(f"Chase risk {candidate['repricing_trend_chase_penalty']:.2f}")
+    if candidate.get("repricing_optionality_score") is not None:
+        setup_bits.append(f"Optionality {candidate['repricing_optionality_score']:.2f}")
     if setup_bits:
         lines.append("Setup: " + " | ".join(setup_bits))
     details = [f"Confidence: {candidate['confidence']:.2f}", f"Reason: {reason}"]

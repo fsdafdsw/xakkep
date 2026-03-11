@@ -107,6 +107,7 @@ def score_repricing_signal(
     spread_penalty = _clamp(max(0.0, spread - min(MAX_SPREAD, 0.05)) * 6.0)
     liquidity_penalty = _clamp(max(0.0, (250.0 - liquidity) / 250.0) * 0.25)
     volume_penalty = _clamp(max(0.0, (200.0 - volume24h) / 200.0) * 0.18)
+    low_price_optionality = _clamp(max(0.0, 0.24 - entry_price) / 0.24)
 
     catalyst_bonus = catalyst_strength * 0.24
     if catalyst_hardness == "hard":
@@ -142,6 +143,14 @@ def score_repricing_signal(
         + (fresh_catalyst_score * 0.06)
         + (0.04 if catalyst_type in {"hostage_release", "appeal", "court_ruling", "military_action"} else 0.0)
     )
+    optionality_score = _clamp(
+        (repricing_potential * 0.18)
+        + (underreaction_score * 0.24)
+        + (attention_gap * 0.16)
+        + (low_price_optionality * 0.18)
+        + (_clamp(1.0 - trend_chase_penalty) * 0.12)
+        + (_clamp(1.0 - already_priced_penalty) * 0.12)
+    )
     score = _clamp(score)
     watch_score = _clamp(watch_score)
     clean_entry = (
@@ -158,10 +167,18 @@ def score_repricing_signal(
         verdict = "buy_now"
         reason = "fresh catalyst and market still underreacted"
     elif watch_score >= MIN_REPRICING_WATCH_SCORE:
+        if (
+            catalyst_hardness != "hard"
+            and optionality_score >= 0.66
+            and trend_chase_penalty <= 0.10
+            and already_priced_penalty <= 0.22
+        ):
+            verdict = "watch_high_upside"
+            reason = "large repricing optionality, but catalyst still soft"
         if entry_price > MAX_REPRICING_BUY_PRICE or trend_chase_penalty > 0.16 or already_priced_penalty > 0.34:
             verdict = "watch_late"
             reason = "strong catalyst, but recent move suggests part of repricing is gone"
-        else:
+        elif verdict != "watch_high_upside":
             verdict = "watch"
             reason = "strong catalyst, but waiting for cleaner entry or confirmation"
     elif trend_chase_penalty >= 0.32:
@@ -182,6 +199,7 @@ def score_repricing_signal(
         "underreaction_score": underreaction_score,
         "fresh_catalyst_score": fresh_catalyst_score,
         "trend_chase_penalty": trend_chase_penalty,
+        "optionality_score": optionality_score,
         "recent_runup": repricing_context["recent_runup"],
         "recent_selloff": repricing_context["recent_selloff"],
         "compression_score": repricing_context["compression_score"],
