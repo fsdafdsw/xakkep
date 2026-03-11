@@ -600,6 +600,8 @@ def build_candidates(
     fidelity: int,
     use_liquidity_filter: bool,
     max_history_requests: int,
+    skip_base_filters: bool = False,
+    skip_score_filters: bool = False,
 ):
     rejects = {
         "low_liquidity": 0,
@@ -772,14 +774,15 @@ def build_candidates(
                 market_type=profile["market_type"],
                 category_group=profile["category_group"],
             )
-            reject_snapshot = dict(rejects)
-            if not _passes_backtest_filters(snapshot, rejects, use_liquidity_filter):
-                for reason_name, count in rejects.items():
-                    if count != reject_snapshot.get(reason_name, 0):
-                        diagnostics["rejects_by_market_type"][reason_name][profile["market_type"]] += 1
-                        diagnostics["rejects_by_category"][reason_name][profile["category_group"]] += 1
-                        break
-                continue
+            if not skip_base_filters:
+                reject_snapshot = dict(rejects)
+                if not _passes_backtest_filters(snapshot, rejects, use_liquidity_filter):
+                    for reason_name, count in rejects.items():
+                        if count != reject_snapshot.get(reason_name, 0):
+                            diagnostics["rejects_by_market_type"][reason_name][profile["market_type"]] += 1
+                            diagnostics["rejects_by_category"][reason_name][profile["category_group"]] += 1
+                            break
+                    continue
             _bump_stage(
                 diagnostics,
                 "passed_filters",
@@ -888,122 +891,130 @@ def build_candidates(
         )
 
     filtered = []
-    for candidate in selected:
-        score_policy = scoring_policy_for_market_type(candidate.market_type)
-        candidate.policy = dict(score_policy)
-        if candidate.confidence < score_policy["min_confidence"]:
-            rejects["low_confidence"] += 1
-            _bump_reject(diagnostics, "low_confidence", candidate.market_type, candidate.category_group)
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_confidence"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_confidence",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
-
-        if candidate.gross_edge < score_policy["min_gross_edge"]:
-            rejects["low_gross_edge"] += 1
-            _bump_reject(diagnostics, "low_gross_edge", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_gross_edge"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_gross_edge",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
-
-        if candidate.meta_confidence < score_policy["min_meta_confidence"]:
-            rejects["low_meta_confidence"] += 1
-            _bump_reject(diagnostics, "low_meta_confidence", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_meta_confidence"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_confidence"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_meta_confidence",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
-
-        if USE_META_MODEL_SELECTOR and candidate.meta_trade_prob is not None:
-            if candidate.meta_trade_prob < MIN_META_TRADE_PROB:
-                rejects["low_meta_model_prob"] += 1
-                _bump_reject(diagnostics, "low_meta_model_prob", candidate.market_type, candidate.category_group)
-                edge_rejections.append(_build_rejection_payload(candidate, "low_meta_model_prob"))
+    if skip_score_filters:
+        for candidate in selected:
+            score_policy = scoring_policy_for_market_type(candidate.market_type)
+            candidate.policy = dict(score_policy)
+            decision_map[_candidate_key(candidate)]["status"] = "research_candidate"
+            decision_map[_candidate_key(candidate)]["selected_for_trade"] = False
+            decision_map[_candidate_key(candidate)]["trade_bucket"] = "research"
+    else:
+        for candidate in selected:
+            score_policy = scoring_policy_for_market_type(candidate.market_type)
+            candidate.policy = dict(score_policy)
+            if candidate.confidence < score_policy["min_confidence"]:
+                rejects["low_confidence"] += 1
+                _bump_reject(diagnostics, "low_confidence", candidate.market_type, candidate.category_group)
                 decision_map[_candidate_key(candidate)]["status"] = "rejected"
-                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_model_prob"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_confidence"
                 continue
             _bump_stage(
                 diagnostics,
-                "after_meta_model",
+                "after_confidence",
                 market_type=candidate.market_type,
                 category_group=candidate.category_group,
             )
 
-        if candidate.graph_consistency < score_policy["min_graph_consistency"]:
-            rejects["low_graph_consistency"] += 1
-            _bump_reject(diagnostics, "low_graph_consistency", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_graph_consistency"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_graph_consistency"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_graph_consistency",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
+            if candidate.gross_edge < score_policy["min_gross_edge"]:
+                rejects["low_gross_edge"] += 1
+                _bump_reject(diagnostics, "low_gross_edge", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_gross_edge"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_gross_edge"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_gross_edge",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
 
-        if candidate.robustness_score < score_policy["min_robustness_score"]:
-            rejects["low_robustness"] += 1
-            _bump_reject(diagnostics, "low_robustness", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_robustness"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_robustness"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_robustness",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
+            if candidate.meta_confidence < score_policy["min_meta_confidence"]:
+                rejects["low_meta_confidence"] += 1
+                _bump_reject(diagnostics, "low_meta_confidence", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_meta_confidence"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_confidence"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_meta_confidence",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
 
-        if candidate.net_edge_lcb is None or candidate.net_edge_lcb <= score_policy["min_lcb_edge"]:
-            rejects["low_lcb_edge"] += 1
-            _bump_reject(diagnostics, "low_lcb_edge", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_lcb_edge"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_lcb_edge"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_lcb_edge",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
+            if USE_META_MODEL_SELECTOR and candidate.meta_trade_prob is not None:
+                if candidate.meta_trade_prob < MIN_META_TRADE_PROB:
+                    rejects["low_meta_model_prob"] += 1
+                    _bump_reject(diagnostics, "low_meta_model_prob", candidate.market_type, candidate.category_group)
+                    edge_rejections.append(_build_rejection_payload(candidate, "low_meta_model_prob"))
+                    decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                    decision_map[_candidate_key(candidate)]["reject_reason"] = "low_meta_model_prob"
+                    continue
+                _bump_stage(
+                    diagnostics,
+                    "after_meta_model",
+                    market_type=candidate.market_type,
+                    category_group=candidate.category_group,
+                )
 
-        bucket = signal_bucket(candidate.net_edge, score_policy, net_edge_lcb=candidate.net_edge_lcb)
-        if bucket != "value":
-            rejects["low_net_edge"] += 1
-            _bump_reject(diagnostics, "low_net_edge", candidate.market_type, candidate.category_group)
-            edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
-            decision_map[_candidate_key(candidate)]["status"] = "rejected"
-            decision_map[_candidate_key(candidate)]["reject_reason"] = "low_net_edge"
-            continue
-        _bump_stage(
-            diagnostics,
-            "after_net_edge",
-            market_type=candidate.market_type,
-            category_group=candidate.category_group,
-        )
-        filtered.append(candidate)
+            if candidate.graph_consistency < score_policy["min_graph_consistency"]:
+                rejects["low_graph_consistency"] += 1
+                _bump_reject(diagnostics, "low_graph_consistency", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_graph_consistency"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_graph_consistency"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_graph_consistency",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
+
+            if candidate.robustness_score < score_policy["min_robustness_score"]:
+                rejects["low_robustness"] += 1
+                _bump_reject(diagnostics, "low_robustness", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_robustness"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_robustness"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_robustness",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
+
+            if candidate.net_edge_lcb is None or candidate.net_edge_lcb <= score_policy["min_lcb_edge"]:
+                rejects["low_lcb_edge"] += 1
+                _bump_reject(diagnostics, "low_lcb_edge", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_lcb_edge"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_lcb_edge"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_lcb_edge",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
+
+            bucket = signal_bucket(candidate.net_edge, score_policy, net_edge_lcb=candidate.net_edge_lcb)
+            if bucket != "value":
+                rejects["low_net_edge"] += 1
+                _bump_reject(diagnostics, "low_net_edge", candidate.market_type, candidate.category_group)
+                edge_rejections.append(_build_rejection_payload(candidate, "low_net_edge"))
+                decision_map[_candidate_key(candidate)]["status"] = "rejected"
+                decision_map[_candidate_key(candidate)]["reject_reason"] = "low_net_edge"
+                continue
+            _bump_stage(
+                diagnostics,
+                "after_net_edge",
+                market_type=candidate.market_type,
+                category_group=candidate.category_group,
+            )
+            filtered.append(candidate)
 
     pre_dedupe = list(filtered)
     filtered = _dedupe_per_event(filtered)

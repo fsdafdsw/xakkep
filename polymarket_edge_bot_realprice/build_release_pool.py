@@ -201,6 +201,34 @@ def _infer_release_event_window(events):
     return min(timestamps), max(timestamps)
 
 
+def _filter_release_events_by_end_date_floor(events, manifest_rows, min_end_ts):
+    if min_end_ts is None:
+        return events, manifest_rows
+
+    kept_events = []
+    kept_manifest = []
+    for event in events:
+        markets = event.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+        kept_markets = []
+        for market in markets:
+            market_end_ts = _to_unix(market.get("endDate") or event.get("endDate"))
+            if market_end_ts is None or market_end_ts < min_end_ts:
+                continue
+            kept_markets.append(market)
+        if kept_markets:
+            cloned = dict(event)
+            cloned["markets"] = kept_markets
+            kept_events.append(cloned)
+
+    for row in manifest_rows:
+        row_end_ts = _to_unix(row.get("market_end_date") or row.get("event_end_date"))
+        if row_end_ts is not None and row_end_ts >= min_end_ts:
+            kept_manifest.append(row)
+    return kept_events, kept_manifest
+
+
 def _build_release_manifest_row(event, market):
     context = market.get("geopolitical_context") or {}
     release_context = market.get("release_context") or {}
@@ -517,6 +545,16 @@ def parse_args():
         default=1.6,
         help="Minimum weighted score for the cheap keyword-first release prefilter.",
     )
+    parser.add_argument(
+        "--min-release-end-date",
+        default="",
+        help="Optional UTC date floor for discovered release markets, e.g. 2025-01-01.",
+    )
+    parser.add_argument(
+        "--repricing-research-mode",
+        action="store_true",
+        help="Keep all scored release snapshots for research instead of applying normal trade-selection filters.",
+    )
     parser.add_argument("--dataset-output", required=True, help="JSONL file or directory for the snapshot pool.")
     parser.add_argument("--manifest-output", default="auto", help="JSONL file or directory for matched raw release markets.")
     parser.add_argument("--summary-output", default=None, help="Optional JSON summary path.")
@@ -528,6 +566,7 @@ def main():
     args = parse_args()
     start_ts = _parse_date_to_ts(args.start_date)
     end_ts = _parse_date_to_ts(args.end_date) + (24 * 3600) - 1
+    min_release_end_ts = _parse_date_to_ts(args.min_release_end_date) if args.min_release_end_date else None
     allowed_catalyst_types = _parse_csv_set(args.allowed_catalyst_types)
     discovery_keywords = _parse_csv_list(args.discovery_keywords)
     discovery_exclusion_keywords = _parse_csv_list(args.discovery_exclusion_keywords)
@@ -569,9 +608,22 @@ def main():
         min_match_score=args.min_match_score,
         allowed_catalyst_types=allowed_catalyst_types,
     )
+    release_events, manifest_rows = _filter_release_events_by_end_date_floor(
+        release_events,
+        manifest_rows,
+        min_release_end_ts,
+    )
+    filter_summary = dict(filter_summary)
+    filter_summary["events_with_release_markets"] = len(release_events)
+    filter_summary["markets_kept"] = len(manifest_rows)
+    filter_summary["catalyst_type_counts"] = dict(
+        sorted(Counter((row.get("catalyst_type") or "generic") for row in manifest_rows).items())
+    )
     print(f"Release events kept: {filter_summary['events_with_release_markets']}")
-    print(f"Release markets kept: {filter_summary['markets_kept']}")
+    print(f"Release markets kept: {len(manifest_rows)}")
     print(f"Catalyst types: {filter_summary['catalyst_type_counts']}")
+    if min_release_end_ts is not None:
+        print(f"Applied release end-date floor: {_date_label(min_release_end_ts)}")
 
     applied_start_ts = start_ts
     applied_end_ts = end_ts
@@ -595,6 +647,8 @@ def main():
         fidelity=args.history_fidelity,
         use_liquidity_filter=args.use_liquidity_filter,
         max_history_requests=args.max_history_requests,
+        skip_base_filters=args.repricing_research_mode,
+        skip_score_filters=args.repricing_research_mode,
     )
 
     output_start_date = _date_label(applied_start_ts)
@@ -634,6 +688,8 @@ def main():
             "discovery_keywords": discovery_keywords,
             "discovery_exclusion_keywords": discovery_exclusion_keywords,
             "coarse_min_score": args.coarse_min_score,
+            "min_release_end_date": args.min_release_end_date or None,
+            "repricing_research_mode": args.repricing_research_mode,
             "align_window_to_discovered_events": args.align_window_to_discovered_events,
             "align_window_padding_days": args.align_window_padding_days,
             "use_liquidity_filter": args.use_liquidity_filter,
