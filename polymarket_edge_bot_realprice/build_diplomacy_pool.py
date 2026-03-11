@@ -25,6 +25,17 @@ _DEFAULT_DIPLOMACY_DISCOVERY_KEYWORDS = (
     "truce",
     "peace talks",
     "peace deal",
+    "peace accord",
+    "peace agreement",
+    "humanitarian pause",
+    "pause in fighting",
+    "halt fighting",
+    "stop fighting",
+    "end hostilities",
+    "hostilities end",
+    "armistice",
+    "de-escalation",
+    "de-escalate",
     "negotiation",
     "negotiations",
     "talk to",
@@ -55,6 +66,17 @@ _STRONG_DIPLOMACY_DISCOVERY_KEYWORDS = {
     "truce",
     "peace talks",
     "peace deal",
+    "peace accord",
+    "peace agreement",
+    "humanitarian pause",
+    "pause in fighting",
+    "halt fighting",
+    "stop fighting",
+    "end hostilities",
+    "hostilities end",
+    "armistice",
+    "de-escalation",
+    "de-escalate",
     "negotiation",
     "negotiations",
     "summit",
@@ -216,7 +238,26 @@ def _coarse_diplomacy_market_score(question_text, context_text, discovery_keywor
         score += 0.35
     if strong_hits and meeting_hits:
         score += 0.45
-    if any(hit in {"ceasefire", "truce", "peace talks", "peace deal"} for hit in strong_hits):
+    if any(
+        hit in {
+            "ceasefire",
+            "truce",
+            "peace talks",
+            "peace deal",
+            "peace accord",
+            "peace agreement",
+            "humanitarian pause",
+            "pause in fighting",
+            "halt fighting",
+            "stop fighting",
+            "end hostilities",
+            "hostilities end",
+            "armistice",
+            "de-escalation",
+            "de-escalate",
+        }
+        for hit in strong_hits
+    ):
         score += 0.35
     return score, question_hits, context_hits
 
