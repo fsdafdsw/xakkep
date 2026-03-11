@@ -563,7 +563,9 @@ def _annotate_candidates_with_repricing_selector(candidates):
             model=candidate.model,
             market_type=candidate.market_type,
             category_group=candidate.category_group,
+            question=candidate.question,
         )
+        candidate.meeting_subtype = prediction.get("meeting_subtype")
         candidate.model["repricing"] = prediction
 
 

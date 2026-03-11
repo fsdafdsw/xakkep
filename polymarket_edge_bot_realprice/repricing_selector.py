@@ -8,6 +8,12 @@ from config import (
     DIPLOMACY_CALL_MAX_ALREADY_PRICED,
     DIPLOMACY_CALL_MAX_ENTRY_PRICE,
     DIPLOMACY_CALL_MIN_ATTENTION_GAP,
+    DIPLOMACY_MEETING_MAX_ALREADY_PRICED,
+    DIPLOMACY_MEETING_MAX_ENTRY_PRICE,
+    DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
+    DIPLOMACY_MEETING_WATCH_SCORE,
+    DIPLOMACY_RESUME_TALKS_MIN_ATTENTION_GAP,
+    DIPLOMACY_RESUME_TALKS_WATCH_SCORE,
     DIPLOMACY_CEASEFIRE_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_CEASEFIRE_WATCH_ONLY,
     DIPLOMACY_CEASEFIRE_WATCH_SCORE,
@@ -33,6 +39,7 @@ from config import (
     RELEASE_MIN_SUBJECT_SCORE,
     RELEASE_REPRICING_BUY_SCORE,
 )
+from meeting_subtype import infer_meeting_subtype
 from repricing_context import build_repricing_context
 
 
@@ -55,7 +62,7 @@ def _domain_components(model):
     return domain.get("components") or {}
 
 
-def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
+def _family_policy(action_family, catalyst_hardness, catalyst_type=None, meeting_subtype=None):
     policy = {
         "buy_threshold": MIN_REPRICING_BUY_SCORE,
         "watch_threshold": MIN_REPRICING_WATCH_SCORE,
@@ -127,6 +134,29 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
                     "high_upside_min_attention_gap": DIPLOMACY_CALL_HIGH_UPSIDE_MIN_ATTENTION_GAP,
                 }
             )
+            if meeting_subtype == "meeting":
+                policy.update(
+                    {
+                        "watch_threshold": DIPLOMACY_MEETING_WATCH_SCORE,
+                        "min_underreaction": 0.58,
+                        "min_fresh": 0.72,
+                        "max_already_priced": DIPLOMACY_MEETING_MAX_ALREADY_PRICED,
+                        "high_upside_max_already_priced": DIPLOMACY_MEETING_MAX_ALREADY_PRICED,
+                        "max_entry_price": DIPLOMACY_MEETING_MAX_ENTRY_PRICE,
+                        "min_attention_gap": DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
+                        "high_upside_min_attention_gap": DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
+                    }
+                )
+            elif meeting_subtype == "resume_talks":
+                policy.update(
+                    {
+                        "watch_threshold": DIPLOMACY_RESUME_TALKS_WATCH_SCORE,
+                        "min_underreaction": 0.54,
+                        "min_fresh": 0.68,
+                        "min_attention_gap": DIPLOMACY_RESUME_TALKS_MIN_ATTENTION_GAP,
+                        "high_upside_min_attention_gap": DIPLOMACY_RESUME_TALKS_MIN_ATTENTION_GAP,
+                    }
+                )
         elif catalyst_type == "ceasefire":
             policy.update(
                 {
@@ -216,6 +246,7 @@ def score_repricing_signal(
     model,
     market_type=None,
     category_group=None,
+    question=None,
 ):
     model = model or {}
     domain_name = model.get("domain_name")
@@ -247,6 +278,7 @@ def score_repricing_signal(
     repricing_potential = _safe_float(components.get("repricing_potential"), 0.0)
     catalyst_strength = _safe_float(components.get("catalyst_strength"), 0.0)
     catalyst_type = str(components.get("catalyst_type") or "generic")
+    meeting_subtype = infer_meeting_subtype(question, catalyst_type=catalyst_type)
     catalyst_hardness = str(components.get("catalyst_hardness") or "soft")
     catalyst_reversibility = str(components.get("catalyst_reversibility") or "high")
     catalyst_has_official_source = bool(components.get("catalyst_has_official_source"))
@@ -336,7 +368,7 @@ def score_repricing_signal(
     score = _clamp(score)
     watch_score = _clamp(watch_score)
     action_family = components.get("action_family")
-    family_policy = _family_policy(action_family, catalyst_hardness, catalyst_type)
+    family_policy = _family_policy(action_family, catalyst_hardness, catalyst_type, meeting_subtype)
     conflict_setup_score = 0.0
     conflict_urgency_score = 0.0
     release_subject_score = 0.0
@@ -455,7 +487,12 @@ def score_repricing_signal(
         elif action_family == "release" and catalyst_type == "hostage_release":
             reason = "credible hostage-release setup with room left in pricing"
         elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
-            reason = "meeting setup looks credible and market still underreacted"
+            if meeting_subtype == "talk_call":
+                reason = "talk-or-call setup looks credible and market still underreacted"
+            elif meeting_subtype == "resume_talks":
+                reason = "talks-resume setup looks credible and market still underreacted"
+            else:
+                reason = "meeting setup looks credible and market still underreacted"
         elif action_family == "diplomacy" and catalyst_type == "ceasefire":
             reason = "ceasefire setup looks credible and market still underreacted"
         else:
@@ -465,7 +502,12 @@ def score_repricing_signal(
         if action_family == "release" and catalyst_type == "hostage_release":
             reason = "credible hostage-release setup, but this family stays watch-only"
         elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
-            reason = "meeting setup looks live, but this family stays watch-only"
+            if meeting_subtype == "talk_call":
+                reason = "talk-or-call setup looks live, but this family stays watch-only"
+            elif meeting_subtype == "resume_talks":
+                reason = "talks-resume setup looks live, but this family stays watch-only"
+            else:
+                reason = "meeting setup looks live, but this family stays watch-only"
         elif action_family == "diplomacy" and catalyst_type == "ceasefire":
             reason = "ceasefire setup looks live, but this family stays watch-only"
         else:
@@ -488,7 +530,12 @@ def score_repricing_signal(
         ):
             verdict = "watch_late"
             if action_family == "diplomacy" and catalyst_type == "call_or_meeting":
-                reason = "meeting theme looks live, but part of the move may already be gone"
+                if meeting_subtype == "talk_call":
+                    reason = "talk-or-call theme looks live, but part of the move may already be gone"
+                elif meeting_subtype == "resume_talks":
+                    reason = "talks-resume theme looks live, but part of the move may already be gone"
+                else:
+                    reason = "meeting theme looks live, but part of the move may already be gone"
             elif action_family == "diplomacy" and catalyst_type == "ceasefire":
                 reason = "ceasefire theme looks live, but part of the move may already be gone"
             else:
@@ -498,7 +545,12 @@ def score_repricing_signal(
             if action_family == "release" and catalyst_type == "hostage_release":
                 reason = "credible hostage-release setup, but waiting for confirmation"
             elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
-                reason = "meeting theme is interesting, but still needs confirmation"
+                if meeting_subtype == "talk_call":
+                    reason = "talk-or-call theme is interesting, but still needs confirmation"
+                elif meeting_subtype == "resume_talks":
+                    reason = "talks-resume theme is interesting, but still needs confirmation"
+                else:
+                    reason = "meeting theme is interesting, but still needs confirmation"
             elif action_family == "diplomacy" and catalyst_type == "ceasefire":
                 reason = "ceasefire theme is interesting, but still needs confirmation"
             else:
@@ -533,6 +585,7 @@ def score_repricing_signal(
         "release_subject_score": release_subject_score,
         "release_legitimacy_score": release_legitimacy_score,
         "catalyst_type": catalyst_type,
+        "meeting_subtype": meeting_subtype,
         "catalyst_strength": catalyst_strength,
         "action_family": action_family,
         "hardness": catalyst_hardness,

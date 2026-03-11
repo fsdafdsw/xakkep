@@ -11,6 +11,7 @@ from filter_policy import (
 )
 from exit_policy import live_exit_plan
 from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
+from meeting_subtype import meeting_subtype_label
 from probability_model import (
     estimated_probability,
     kelly_bet_fraction,
@@ -331,6 +332,7 @@ def _build_candidate(item, score_policy):
         model=candidate["model"],
         market_type=candidate["market_type"],
         category_group=candidate["category_group"],
+        question=candidate.get("question"),
     )
     candidate["model"]["repricing"] = repricing
     candidate["repricing_score"] = repricing.get("score")
@@ -338,6 +340,7 @@ def _build_candidate(item, score_policy):
     candidate["repricing_verdict"] = repricing.get("verdict")
     candidate["repricing_reason"] = repricing.get("reason")
     candidate["repricing_attention_gap"] = repricing.get("attention_gap")
+    candidate["meeting_subtype"] = repricing.get("meeting_subtype")
     candidate["repricing_stale_score"] = repricing.get("stale_score")
     candidate["repricing_already_priced_penalty"] = repricing.get("already_priced_penalty")
     candidate["repricing_underreaction_score"] = repricing.get("underreaction_score")
@@ -517,6 +520,21 @@ def _radar_reason(candidate):
                 return "ceasefire talks matter here, but the market may already have reacted"
             return "ceasefire talks matter here, but confirmation is still missing"
         if catalyst_type in {"negotiation", "call_or_meeting", "summit"}:
+            meeting_subtype = str(candidate.get("meeting_subtype") or "")
+            if catalyst_type == "call_or_meeting" and meeting_subtype == "talk_call":
+                if verdict == "watch_high_upside":
+                    return "talk-or-call theme has upside, but confirmation is still missing"
+                if verdict == "watch_late":
+                    return "talk-or-call theme is live, but part of the move may be gone"
+                if verdict == "watch":
+                    return "talk-or-call theme is interesting, but not confirmed yet"
+            if catalyst_type == "call_or_meeting" and meeting_subtype == "resume_talks":
+                if verdict == "watch_high_upside":
+                    return "talks-resume theme has upside, but confirmation is still missing"
+                if verdict == "watch_late":
+                    return "talks-resume theme is live, but part of the move may be gone"
+                if verdict == "watch":
+                    return "talks-resume theme is interesting, but not confirmed yet"
             if verdict == "watch_high_upside":
                 return "talks theme has upside, but the catalyst is still soft"
             if verdict == "watch_late":
@@ -551,12 +569,15 @@ def _radar_reason(candidate):
 def _repricing_case_label(candidate):
     action_family = str(candidate.get("domain_action_family") or "")
     catalyst_type = str(candidate.get("catalyst_type") or "")
+    meeting_subtype = str(candidate.get("meeting_subtype") or "")
 
     if action_family == "release" and catalyst_type == "hostage_release":
         return "Hostage release"
     if action_family == "release" and catalyst_type in {"hearing", "court_ruling", "appeal"}:
         return "Legal catalyst"
     if action_family == "diplomacy":
+        if catalyst_type == "call_or_meeting" and meeting_subtype:
+            return meeting_subtype_label(meeting_subtype)
         labels = {
             "negotiation": "Negotiation",
             "ceasefire": "Ceasefire talks",

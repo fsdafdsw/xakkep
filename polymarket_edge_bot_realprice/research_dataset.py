@@ -107,6 +107,7 @@ def build_snapshot_row(candidate, decision, context):
         "domain_confidence": model.get("domain_confidence"),
         "domain_action_family": domain_components.get("action_family"),
         "catalyst_type": domain_components.get("catalyst_type"),
+        "meeting_subtype": repricing.get("meeting_subtype"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "catalyst_hardness": domain_components.get("catalyst_hardness"),
         "catalyst_reversibility": domain_components.get("catalyst_reversibility"),

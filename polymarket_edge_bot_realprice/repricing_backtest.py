@@ -281,6 +281,7 @@ def _rebuild_repricing_prediction(row, *, one_hour_change, one_day_change, one_w
         model=model,
         market_type=row.get("market_type"),
         category_group=row.get("category_group"),
+        question=row.get("question"),
     )
 
 
@@ -545,6 +546,7 @@ def analyze_repricing(rows, args):
             "domain_name": row.get("domain_name"),
             "domain_action_family": _extract_domain_action_family(row),
             "catalyst_type": rebuilt_repricing.get("catalyst_type") or _extract_catalyst_type(row),
+            "meeting_subtype": rebuilt_repricing.get("meeting_subtype") or row.get("meeting_subtype"),
             "catalyst_strength": _extract_catalyst_strength(row),
             "catalyst_hardness": rebuilt_repricing.get("hardness") or _extract_catalyst_hardness(row),
             "repricing_potential": _extract_repricing_potential(row),
