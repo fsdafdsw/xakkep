@@ -17,6 +17,7 @@ from backtest import (
 from calibration_report import load_jsonl
 from catalyst_parser import parse_catalyst
 from config import MIN_GEOPOLITICAL_REPRICING, REPORTS_DIR
+from exit_policy import should_execute_repricing_trade, simulate_exit
 from repricing_selector import score_repricing_signal
 
 
@@ -111,6 +112,12 @@ def _distribution(values):
         "p50": ordered[len(ordered) // 2],
         "p90": ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))],
     }
+
+
+def _rate(rows, predicate):
+    if not rows:
+        return None
+    return sum(1 for row in rows if predicate(row)) / len(rows)
 
 
 def _extract_domain_components(row):
@@ -450,6 +457,21 @@ def analyze_repricing(rows, args):
             if runup_pct is not None:
                 runups.append(runup_pct)
 
+        repricing_verdict = rebuilt_repricing.get("verdict", _extract_repricing_verdict(row))
+        execute_trade = should_execute_repricing_trade(repricing_verdict)
+        exit_result = (
+            simulate_exit(
+                forward_history,
+                entry_ts=entry_ts,
+                settle_ts=settle_ts,
+                entry_price=entry_price,
+                action_family=action_family,
+                repricing_verdict=repricing_verdict,
+            )
+            if execute_trade
+            else {}
+        )
+
         analysis = {
             "snapshot_id": row.get("snapshot_id"),
             "question": row.get("question"),
@@ -465,7 +487,7 @@ def analyze_repricing(rows, args):
             "repricing_potential": _extract_repricing_potential(row),
             "repricing_score": rebuilt_repricing.get("score", _extract_repricing_score(row)),
             "repricing_watch_score": rebuilt_repricing.get("watch_score", _extract_repricing_watch_score(row)),
-            "repricing_verdict": rebuilt_repricing.get("verdict", _extract_repricing_verdict(row)),
+            "repricing_verdict": repricing_verdict,
             "repricing_reason": rebuilt_repricing.get("reason") or row.get("repricing_reason"),
             "repricing_attention_gap": rebuilt_repricing.get("attention_gap", _extract_repricing_metric(row, "repricing_attention_gap")),
             "repricing_underreaction_score": rebuilt_repricing.get("underreaction_score", _extract_repricing_metric(row, "repricing_underreaction_score")),
@@ -500,6 +522,18 @@ def analyze_repricing(rows, args):
             "best_runup_pct": max(runups) if runups else None,
             "repricing_hit_count": sum(hit_counts),
             "conflict_repricing_hit_count": sum(conflict_hit_counts),
+            "repricing_tradeable": execute_trade,
+            "exit_policy_name": (exit_result.get("policy") or {}).get("name"),
+            "exit_take_profit_price": exit_result.get("take_profit_price"),
+            "exit_stop_loss_price": exit_result.get("stop_loss_price"),
+            "exit_time_stop_ts": exit_result.get("time_stop_ts"),
+            "exit_time_stop_utc": _to_utc_str(exit_result.get("time_stop_ts")),
+            "exit_reason": exit_result.get("exit_reason"),
+            "exit_ts": exit_result.get("exit_ts"),
+            "exit_utc": _to_utc_str(exit_result.get("exit_ts")),
+            "exit_price": exit_result.get("exit_price"),
+            "exit_return_pct": exit_result.get("exit_return_pct"),
+            "exit_holding_hours": exit_result.get("holding_hours"),
         }
         analyses.append(analysis)
         by_market_type[str(analysis.get("market_type") or "unknown")].append(analysis)
@@ -527,9 +561,21 @@ def analyze_repricing(rows, args):
 
 
 def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices):
+    executed_rows = [row for row in rows if row.get("repricing_tradeable")]
     summary = {
         "count": len(rows),
+        "tradeable_count": len(executed_rows),
+        "tradeable_rate": (len(executed_rows) / len(rows)) if rows else None,
         "best_runup_pct": _distribution([row.get("best_runup_pct") for row in rows]),
+        "exit_return_pct": _distribution([row.get("exit_return_pct") for row in executed_rows]),
+        "exit_holding_hours": _distribution([row.get("exit_holding_hours") for row in executed_rows]),
+        "exit_reason_rates": {
+            "take_profit": _rate(executed_rows, lambda row: row.get("exit_reason") == "take_profit"),
+            "trailing_stop": _rate(executed_rows, lambda row: row.get("exit_reason") == "trailing_stop"),
+            "stop_loss": _rate(executed_rows, lambda row: row.get("exit_reason") == "stop_loss"),
+            "time_stop": _rate(executed_rows, lambda row: row.get("exit_reason") == "time_stop"),
+            "settlement": _rate(executed_rows, lambda row: row.get("exit_reason") == "settlement"),
+        },
         "repricing_features": {
             "attention_gap": _distribution([row.get("repricing_attention_gap") for row in rows]),
             "underreaction_score": _distribution([row.get("repricing_underreaction_score") for row in rows]),
