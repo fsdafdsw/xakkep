@@ -10,6 +10,8 @@ from config import (
     DIPLOMACY_CALL_MIN_ATTENTION_GAP,
     DIPLOMACY_MEETING_MAX_ALREADY_PRICED,
     DIPLOMACY_MEETING_MAX_ENTRY_PRICE,
+    DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_ATTENTION_GAP,
+    DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_WATCH_SCORE,
     DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
     DIPLOMACY_MEETING_WATCH_SCORE,
     DIPLOMACY_RESUME_TALKS_MIN_ATTENTION_GAP,
@@ -73,6 +75,7 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None, meeting
         "high_upside_optionality": 0.70,
         "high_upside_max_chase": 0.10,
         "high_upside_max_already_priced": 0.22,
+        "high_upside_min_watch_score": 0.0,
         "allow_high_upside": True,
         "allow_buy_now": True,
         "require_hard_for_buy": False,
@@ -144,7 +147,8 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None, meeting
                         "high_upside_max_already_priced": DIPLOMACY_MEETING_MAX_ALREADY_PRICED,
                         "max_entry_price": DIPLOMACY_MEETING_MAX_ENTRY_PRICE,
                         "min_attention_gap": DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
-                        "high_upside_min_attention_gap": DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
+                        "high_upside_min_attention_gap": DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_ATTENTION_GAP,
+                        "high_upside_min_watch_score": DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_WATCH_SCORE,
                     }
                 )
             elif meeting_subtype == "resume_talks":
@@ -516,6 +520,7 @@ def score_repricing_signal(
         if (
             family_policy["allow_high_upside"]
             and catalyst_hardness != "hard"
+            and watch_score >= family_policy["high_upside_min_watch_score"]
             and optionality_score >= family_policy["high_upside_optionality"]
             and attention_gap >= family_policy["high_upside_min_attention_gap"]
             and trend_chase_penalty <= family_policy["high_upside_max_chase"]
