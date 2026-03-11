@@ -63,6 +63,38 @@ _DEFAULT_DISCOVERY_EXCLUSION_KEYWORDS = (
     "revenue",
     "eps",
 )
+_STRONG_RELEASE_DISCOVERY_KEYWORDS = {
+    "jimmy lai",
+    "julian assange",
+    "osman kavala",
+    "hostage",
+    "hostages",
+    "hostage swap",
+    "hostage deal",
+    "hostage exchange",
+    "prisoner swap",
+    "extradition",
+    "extradited",
+    "extradite",
+}
+_LEGAL_RELEASE_DISCOVERY_KEYWORDS = {
+    "release",
+    "released",
+    "appeal",
+    "appeals court",
+    "hearing",
+    "court",
+    "tribunal",
+    "parole",
+    "amnesty",
+    "clemency",
+    "detained",
+    "detention",
+    "custody",
+    "bail",
+    "prisoner",
+    "prisoners",
+}
 
 
 def _parse_offset_list(text):
@@ -187,6 +219,9 @@ def _build_release_manifest_row(event, market):
         "outcome_prices": market.get("outcomePrices"),
         "clob_token_ids": market.get("clobTokenIds"),
         "discovery_hits": market.get("_release_discovery_hits") or [],
+        "question_discovery_hits": market.get("_release_question_hits") or [],
+        "context_discovery_hits": market.get("_release_context_hits") or [],
+        "discovery_score": market.get("_release_discovery_score"),
         "release_score": release_context.get("release_score"),
         "action_family": context.get("action_family"),
         "catalyst_type": context.get("catalyst_type"),
@@ -211,7 +246,27 @@ def _keyword_hits(text, keywords):
     return hits
 
 
-def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywords):
+def _coarse_release_market_score(question_text, context_text, discovery_keywords):
+    question_hits = _keyword_hits(question_text, discovery_keywords)
+    context_hits = [hit for hit in _keyword_hits(context_text, discovery_keywords) if hit not in question_hits]
+
+    strong_hits = [hit for hit in question_hits + context_hits if hit in _STRONG_RELEASE_DISCOVERY_KEYWORDS]
+    legal_hits = [hit for hit in question_hits + context_hits if hit in _LEGAL_RELEASE_DISCOVERY_KEYWORDS]
+    score = 0.0
+    score += min(2.4, len(question_hits) * 0.9)
+    score += min(1.0, len(context_hits) * 0.25)
+    if any(hit in _STRONG_RELEASE_DISCOVERY_KEYWORDS for hit in question_hits):
+        score += 0.8
+    if any(hit in _LEGAL_RELEASE_DISCOVERY_KEYWORDS for hit in question_hits):
+        score += 0.45
+    if strong_hits and legal_hits:
+        score += 0.9
+    if any(hit in {"hostage", "hostages", "hostage swap", "hostage deal", "hostage exchange"} for hit in strong_hits):
+        score += 0.35
+    return score, question_hits, context_hits
+
+
+def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywords, min_coarse_score):
     if not discovery_keywords:
         return events, {
             "enabled": False,
@@ -224,6 +279,7 @@ def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywo
     filtered_events = []
     keyword_counter = Counter()
     exclusion_counter = Counter()
+    coarse_score_distribution = []
     kept_markets = 0
 
     for event in events:
@@ -238,25 +294,30 @@ def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywo
 
         kept = []
         for market in markets:
-            market_text = normalize_text(
-                market.get("question"),
-                event_title,
-                event_description,
-                event_category,
-                resolution_source,
-            )
+            question_text = normalize_text(market.get("question"))
+            context_text = normalize_text(event_title, event_description, event_category, resolution_source)
+            market_text = normalize_text(question_text, context_text)
             exclusion_hits = _keyword_hits(market_text, exclusion_keywords)
             if exclusion_hits:
                 for hit in exclusion_hits:
                     exclusion_counter[hit] += 1
                 continue
-            hits = _keyword_hits(market_text, discovery_keywords)
-            if not hits:
+            coarse_score, question_hits, context_hits = _coarse_release_market_score(
+                question_text,
+                context_text,
+                discovery_keywords,
+            )
+            hits = question_hits + [hit for hit in context_hits if hit not in question_hits]
+            if not hits or coarse_score < min_coarse_score:
                 continue
             enriched = dict(market)
             enriched["_release_discovery_hits"] = hits
+            enriched["_release_question_hits"] = question_hits
+            enriched["_release_context_hits"] = context_hits
+            enriched["_release_discovery_score"] = coarse_score
             kept.append(enriched)
             kept_markets += 1
+            coarse_score_distribution.append(coarse_score)
             for hit in hits:
                 keyword_counter[hit] += 1
 
@@ -271,6 +332,11 @@ def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywo
         "markets_kept": kept_markets,
         "top_keywords": dict(keyword_counter.most_common(20)),
         "top_exclusions": dict(exclusion_counter.most_common(20)),
+        "coarse_score": {
+            "count": len(coarse_score_distribution),
+            "max": max(coarse_score_distribution) if coarse_score_distribution else None,
+            "mean": (sum(coarse_score_distribution) / len(coarse_score_distribution)) if coarse_score_distribution else None,
+        },
     }
 
 
@@ -439,6 +505,18 @@ def parse_args():
         action="store_true",
         help="Use the min/max endDate of discovered release events instead of the requested date window.",
     )
+    parser.add_argument(
+        "--align-window-padding-days",
+        type=int,
+        default=14,
+        help="Padding added around the discovered release-event window.",
+    )
+    parser.add_argument(
+        "--coarse-min-score",
+        type=float,
+        default=1.6,
+        help="Minimum weighted score for the cheap keyword-first release prefilter.",
+    )
     parser.add_argument("--dataset-output", required=True, help="JSONL file or directory for the snapshot pool.")
     parser.add_argument("--manifest-output", default="auto", help="JSONL file or directory for matched raw release markets.")
     parser.add_argument("--summary-output", default=None, help="Optional JSON summary path.")
@@ -481,6 +559,7 @@ def main():
         events,
         discovery_keywords,
         discovery_exclusion_keywords,
+        args.coarse_min_score,
     )
     print(f"Coarse keyword-prefilter events kept: {coarse_summary['events_kept']}")
     print(f"Coarse keyword-prefilter markets kept: {coarse_summary['markets_kept']}")
@@ -498,8 +577,9 @@ def main():
     applied_end_ts = end_ts
     inferred_start_ts, inferred_end_ts = _infer_release_event_window(release_events)
     if args.align_window_to_discovered_events and inferred_start_ts is not None and inferred_end_ts is not None:
-        applied_start_ts = inferred_start_ts
-        applied_end_ts = inferred_end_ts
+        padding_seconds = max(0, args.align_window_padding_days) * 24 * 3600
+        applied_start_ts = max(0, inferred_start_ts - padding_seconds)
+        applied_end_ts = inferred_end_ts + padding_seconds
         print(
             "Applied event-anchored window: "
             f"{_date_label(applied_start_ts)} .. {_date_label(applied_end_ts)}"
@@ -553,7 +633,9 @@ def main():
             "allowed_catalyst_types": sorted(allowed_catalyst_types),
             "discovery_keywords": discovery_keywords,
             "discovery_exclusion_keywords": discovery_exclusion_keywords,
+            "coarse_min_score": args.coarse_min_score,
             "align_window_to_discovered_events": args.align_window_to_discovered_events,
+            "align_window_padding_days": args.align_window_padding_days,
             "use_liquidity_filter": args.use_liquidity_filter,
         },
         "coarse_prefilter": coarse_summary,
