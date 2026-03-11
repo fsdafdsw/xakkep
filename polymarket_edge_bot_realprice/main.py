@@ -521,6 +521,29 @@ def _radar_reason(candidate):
     return labels.get(reason, str(reason).replace("_", " "))
 
 
+def _repricing_case_label(candidate):
+    action_family = str(candidate.get("domain_action_family") or "")
+    catalyst_type = str(candidate.get("catalyst_type") or "")
+
+    if action_family == "release" and catalyst_type == "hostage_release":
+        return "Hostage release"
+    if action_family == "release" and catalyst_type in {"hearing", "court_ruling", "appeal"}:
+        return "Legal catalyst"
+    if action_family == "diplomacy":
+        labels = {
+            "negotiation": "Negotiation",
+            "ceasefire": "Ceasefire talks",
+            "call_or_meeting": "Call or meeting",
+            "summit": "Summit",
+        }
+        return labels.get(catalyst_type, "Diplomatic move")
+    if action_family == "conflict":
+        return "Conflict catalyst"
+    if action_family == "regime_shift":
+        return "Regime shift"
+    return None
+
+
 def _is_geopolitical_radar_candidate(candidate):
     repricing_verdict = str(candidate.get("repricing_verdict") or "")
     return (
@@ -753,8 +776,11 @@ def _build_release_buy_now(value_bets, watchlist, rejected_candidates):
 
 def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
+    case_label = _repricing_case_label(candidate)
     verdict = _radar_verdict(candidate)
     reason = _radar_reason(candidate)
+    if case_label:
+        lines.append(f"Case: {case_label}")
     lines.append(f"Verdict: {verdict}")
     lines.append(f"Why: {reason.capitalize()}")
     lines.append(f"Price now: {candidate['entry']:.3f}")
