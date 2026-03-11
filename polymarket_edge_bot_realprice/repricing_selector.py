@@ -279,7 +279,7 @@ def score_repricing_signal(
         "verdict": verdict,
         "reason": reason,
         "buy_now": verdict == "buy_now",
-        "watch": verdict in {"buy_now", "watch", "watch_late"},
+        "watch": verdict in {"buy_now", "watch", "watch_high_upside", "watch_late"},
         "attention_gap": attention_gap,
         "stale_score": stale_score,
         "already_priced_penalty": already_priced_penalty,
