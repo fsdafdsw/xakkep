@@ -10,6 +10,13 @@ from config import (
     MIN_REPRICING_BUY_SCORE,
     MIN_REPRICING_WATCH_SCORE,
     RELEASE_FAST_LANE_BONUS,
+    RELEASE_HEARING_BUY_SCORE,
+    RELEASE_HEARING_FAST_LANE_BONUS,
+    RELEASE_HEARING_MIN_LEGITIMACY_SCORE,
+    RELEASE_HEARING_MIN_SUBJECT_SCORE,
+    RELEASE_HOSTAGE_BUY_SCORE,
+    RELEASE_HOSTAGE_MIN_LEGITIMACY_SCORE,
+    RELEASE_HOSTAGE_MIN_SUBJECT_SCORE,
     RELEASE_MIN_LEGITIMACY_SCORE,
     RELEASE_MIN_SUBJECT_SCORE,
     RELEASE_REPRICING_BUY_SCORE,
@@ -36,7 +43,7 @@ def _domain_components(model):
     return domain.get("components") or {}
 
 
-def _family_policy(action_family, catalyst_hardness):
+def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
     policy = {
         "buy_threshold": MIN_REPRICING_BUY_SCORE,
         "watch_threshold": MIN_REPRICING_WATCH_SCORE,
@@ -99,6 +106,32 @@ def _family_policy(action_family, catalyst_hardness):
                 "family_bonus": RELEASE_FAST_LANE_BONUS,
             }
         )
+        if catalyst_type in {"hearing", "court_ruling", "appeal"}:
+            policy.update(
+                {
+                    "buy_threshold": RELEASE_HEARING_BUY_SCORE,
+                    "min_underreaction": 0.56,
+                    "min_fresh": 0.64,
+                    "max_chase": 0.10,
+                    "max_already_priced": 0.20,
+                    "min_setup_score": RELEASE_HEARING_MIN_SUBJECT_SCORE,
+                    "min_urgency_score": RELEASE_HEARING_MIN_LEGITIMACY_SCORE,
+                    "family_bonus": RELEASE_HEARING_FAST_LANE_BONUS,
+                }
+            )
+        elif catalyst_type == "hostage_release":
+            policy.update(
+                {
+                    "buy_threshold": RELEASE_HOSTAGE_BUY_SCORE,
+                    "min_underreaction": 0.54,
+                    "min_fresh": 0.68,
+                    "max_chase": 0.10,
+                    "max_already_priced": 0.16,
+                    "min_setup_score": RELEASE_HOSTAGE_MIN_SUBJECT_SCORE,
+                    "min_urgency_score": RELEASE_HOSTAGE_MIN_LEGITIMACY_SCORE,
+                    "family_bonus": RELEASE_FAST_LANE_BONUS,
+                }
+            )
     elif action_family == "regime_shift":
         policy.update(
             {
@@ -250,7 +283,7 @@ def score_repricing_signal(
     score = _clamp(score)
     watch_score = _clamp(watch_score)
     action_family = components.get("action_family")
-    family_policy = _family_policy(action_family, catalyst_hardness)
+    family_policy = _family_policy(action_family, catalyst_hardness, catalyst_type)
     conflict_setup_score = 0.0
     conflict_urgency_score = 0.0
     release_subject_score = 0.0
@@ -362,7 +395,12 @@ def score_repricing_signal(
     reason = "repricing score too low"
     if score >= family_policy["buy_threshold"] and clean_entry:
         verdict = "buy_now"
-        reason = "fresh catalyst and market still underreacted"
+        if action_family == "release" and catalyst_type in {"hearing", "court_ruling", "appeal"}:
+            reason = "hard legal catalyst and market still underreacted"
+        elif action_family == "release" and catalyst_type == "hostage_release":
+            reason = "credible hostage-release setup with room left in pricing"
+        else:
+            reason = "fresh catalyst and market still underreacted"
     elif watch_score >= family_policy["watch_threshold"]:
         if (
             family_policy["allow_high_upside"]
