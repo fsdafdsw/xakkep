@@ -9,6 +9,9 @@ from config import (
     MAX_REPRICING_BUY_PRICE,
     MIN_REPRICING_BUY_SCORE,
     MIN_REPRICING_WATCH_SCORE,
+    RELEASE_FAST_LANE_BONUS,
+    RELEASE_MIN_LEGITIMACY_SCORE,
+    RELEASE_MIN_SUBJECT_SCORE,
     RELEASE_REPRICING_BUY_SCORE,
 )
 from repricing_context import build_repricing_context
@@ -91,6 +94,9 @@ def _family_policy(action_family, catalyst_hardness):
                 "max_chase": 0.12,
                 "max_already_priced": 0.28,
                 "allow_high_upside": True,
+                "min_setup_score": RELEASE_MIN_SUBJECT_SCORE,
+                "min_urgency_score": RELEASE_MIN_LEGITIMACY_SCORE,
+                "family_bonus": RELEASE_FAST_LANE_BONUS,
             }
         )
     elif action_family == "regime_shift":
@@ -158,6 +164,12 @@ def score_repricing_signal(
     catalyst_hardness = str(components.get("catalyst_hardness") or "soft")
     catalyst_reversibility = str(components.get("catalyst_reversibility") or "high")
     catalyst_has_official_source = bool(components.get("catalyst_has_official_source"))
+    hard_state = bool(components.get("hard_state"))
+    binary_event_grid = bool(components.get("binary_event_grid"))
+    question_geo_keywords = list(components.get("question_geo_keywords") or [])
+    institution_keywords = list(components.get("institution_keywords") or [])
+    release_context_keywords = list(components.get("release_context_keywords") or [])
+    release_figure_keywords = list(components.get("release_figure_keywords") or [])
     liquidity = _safe_float(liquidity, _safe_float(components.get("liquidity"), 0.0))
     volume24h = _safe_float(volume24h, _safe_float(components.get("volume24h"), 0.0))
     one_hour_change = _safe_float(one_hour_change, _safe_float(components.get("one_hour_change"), 0.0))
@@ -241,6 +253,8 @@ def score_repricing_signal(
     family_policy = _family_policy(action_family, catalyst_hardness)
     conflict_setup_score = 0.0
     conflict_urgency_score = 0.0
+    release_subject_score = 0.0
+    release_legitimacy_score = 0.0
     if action_family == "conflict":
         conflict_setup_score = _clamp(
             (underreaction_score * 0.32)
@@ -269,14 +283,71 @@ def score_repricing_signal(
             + (conflict_urgency_score * 0.04)
             + (family_policy["family_bonus"] * 0.5)
         )
+    elif action_family == "release":
+        figure_bonus = 0.18 if release_figure_keywords else 0.0
+        hostage_bonus = 0.16 if catalyst_type == "hostage_release" else 0.0
+        legal_context_bonus = min(0.14, len(release_context_keywords) * 0.02)
+        geo_bonus = min(0.10, len(question_geo_keywords) * 0.02)
+        human_case_bonus = 0.12 if (release_figure_keywords or catalyst_type == "hostage_release") else 0.0
+        release_subject_score = _clamp(
+            (underreaction_score * 0.22)
+            + (attention_gap * 0.14)
+            + figure_bonus
+            + hostage_bonus
+            + legal_context_bonus
+            + geo_bonus
+            + human_case_bonus
+        )
+        official_bonus = 0.14 if catalyst_has_official_source else 0.0
+        hard_bonus = 0.10 if catalyst_hardness == "hard" else 0.0
+        low_reversibility_bonus = 0.06 if catalyst_reversibility == "low" else 0.0
+        institution_bonus = min(0.10, len(institution_keywords) * 0.02)
+        binary_penalty = 0.08 if binary_event_grid else 0.0
+        generic_penalty = 0.12 if (not release_figure_keywords and catalyst_type not in {"hostage_release"}) else 0.0
+        release_legitimacy_score = _clamp(
+            (fresh_catalyst_score * 0.26)
+            + (deadline_pressure * 0.12)
+            + (confidence * 0.08)
+            + (domain_confidence * 0.06)
+            + official_bonus
+            + hard_bonus
+            + low_reversibility_bonus
+            + institution_bonus
+            - binary_penalty
+            - generic_penalty
+        )
+        score = _clamp(
+            score
+            + (release_subject_score * 0.06)
+            + (release_legitimacy_score * 0.05)
+            + family_policy["family_bonus"]
+        )
+        watch_score = _clamp(
+            watch_score
+            + (release_subject_score * 0.04)
+            + (release_legitimacy_score * 0.03)
+            + (family_policy["family_bonus"] * 0.4)
+        )
     clean_entry = (
         entry_price <= MAX_REPRICING_BUY_PRICE
         and underreaction_score >= family_policy["min_underreaction"]
         and fresh_catalyst_score >= family_policy["min_fresh"]
         and trend_chase_penalty <= family_policy["max_chase"]
         and already_priced_penalty <= family_policy["max_already_priced"]
-        and conflict_setup_score >= family_policy["min_setup_score"]
-        and conflict_urgency_score >= family_policy["min_urgency_score"]
+        and (
+            action_family != "conflict"
+            or (
+                conflict_setup_score >= family_policy["min_setup_score"]
+                and conflict_urgency_score >= family_policy["min_urgency_score"]
+            )
+        )
+        and (
+            action_family != "release"
+            or (
+                release_subject_score >= family_policy["min_setup_score"]
+                and release_legitimacy_score >= family_policy["min_urgency_score"]
+            )
+        )
         and (
             not family_policy["require_hard_for_buy"]
             or catalyst_hardness == "hard"
@@ -339,6 +410,8 @@ def score_repricing_signal(
         "family_policy": family_policy,
         "conflict_setup_score": conflict_setup_score,
         "conflict_urgency_score": conflict_urgency_score,
+        "release_subject_score": release_subject_score,
+        "release_legitimacy_score": release_legitimacy_score,
         "catalyst_type": catalyst_type,
         "catalyst_strength": catalyst_strength,
         "action_family": action_family,

@@ -125,6 +125,8 @@ def build_snapshot_row(candidate, decision, context):
         "repricing_optionality_score": repricing.get("optionality_score"),
         "repricing_conflict_setup_score": repricing.get("conflict_setup_score"),
         "repricing_conflict_urgency_score": repricing.get("conflict_urgency_score"),
+        "repricing_release_subject_score": repricing.get("release_subject_score"),
+        "repricing_release_legitimacy_score": repricing.get("release_legitimacy_score"),
         "repricing_recent_runup": repricing.get("recent_runup"),
         "repricing_recent_selloff": repricing.get("recent_selloff"),
         "repricing_compression_score": repricing.get("compression_score"),
