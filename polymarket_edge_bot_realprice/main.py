@@ -528,6 +528,13 @@ def _radar_reason(candidate):
                     return "high-level contact setup is live, but much of the move may already be gone"
                 if verdict == "watch":
                     return "possible high-level call setup, but it still needs confirmation"
+            if catalyst_type == "call_or_meeting" and meeting_subtype in {"meeting", "meeting_generic"}:
+                if verdict == "watch_high_upside":
+                    return "possible meeting setup has upside, but the meeting still needs firmer confirmation"
+                if verdict == "watch_late":
+                    return "meeting setup is live, but most of the repricing may already be behind it"
+                if verdict == "watch":
+                    return "possible meeting setup is forming, but it is still early and not confirmed"
             if catalyst_type == "call_or_meeting" and meeting_subtype == "resume_talks":
                 if verdict == "watch_high_upside":
                     return "talks-resume theme has upside, but confirmation is still missing"
