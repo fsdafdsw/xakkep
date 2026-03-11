@@ -92,6 +92,40 @@ def _first_cross_time(history, threshold_price, end_ts):
     return None
 
 
+def _prepare_forward_history(history, entry_ts, settle_ts, entry_price, resolved_outcome):
+    prepared = []
+    for ts, price in history or []:
+        if ts is None or price is None:
+            continue
+        prepared.append((int(ts), float(price)))
+    prepared.sort(key=lambda item: item[0])
+
+    forward_history = [(ts, price) for ts, price in prepared if ts >= entry_ts]
+    if not forward_history or forward_history[0][0] != entry_ts:
+        forward_history = [(entry_ts, float(entry_price))] + forward_history
+
+    settlement_price = _safe_float(resolved_outcome)
+    used_settlement_fallback = False
+    if settlement_price is not None and settle_ts is not None and settle_ts >= entry_ts:
+        if not any(ts >= settle_ts for ts, _ in forward_history):
+            forward_history.append((int(settle_ts), _clamp(settlement_price)))
+            used_settlement_fallback = True
+
+    deduped = {}
+    for ts, price in forward_history:
+        deduped[int(ts)] = float(price)
+    normalized = sorted(deduped.items(), key=lambda item: item[0])
+
+    if not prepared and used_settlement_fallback:
+        history_source = "settlement_only"
+    elif used_settlement_fallback:
+        history_source = "api_plus_settlement"
+    else:
+        history_source = "api_only"
+
+    return normalized, history_source
+
+
 def _distribution(values):
     clean = [float(value) for value in values if value is not None]
     if not clean:
@@ -358,14 +392,27 @@ def analyze_repricing(rows, args):
         entry_ts = _safe_int(row.get("entry_ts"))
         settle_ts = _safe_int(row.get("settle_ts"))
         entry_price = _safe_float(row.get("entry_price") or row.get("market_implied"))
+        resolved_outcome = _safe_float(row.get("resolved_outcome"))
         if not token_id or entry_ts is None or settle_ts is None or entry_price is None:
             continue
 
         history_start_ts = max(0, entry_ts - (args.pre_entry_lookback_days * 24 * 3600))
         forward_end_ts = min(settle_ts, entry_ts + (max_window_days * 24 * 3600))
+        history_error = None
         try:
             history = fetch_price_history(token_id, history_start_ts, forward_end_ts, fidelity=args.history_fidelity)
         except RuntimeError as exc:
+            history = []
+            history_error = str(exc)
+
+        forward_history, history_source = _prepare_forward_history(
+            history,
+            entry_ts=entry_ts,
+            settle_ts=settle_ts,
+            entry_price=entry_price,
+            resolved_outcome=resolved_outcome,
+        )
+        if len(forward_history) < 2:
             analyses.append(
                 {
                     "snapshot_id": row.get("snapshot_id"),
@@ -373,14 +420,11 @@ def analyze_repricing(rows, args):
                     "domain_name": row.get("domain_name"),
                     "market_type": row.get("market_type"),
                     "entry_price": entry_price,
-                    "error": str(exc),
+                    "history_source": history_source,
+                    "error": history_error or "insufficient_forward_history",
                 }
             )
             continue
-
-        forward_history = [(ts, price) for ts, price in history if ts >= entry_ts]
-        if not forward_history or forward_history[0][0] != entry_ts:
-            forward_history = [(entry_ts, entry_price)] + forward_history
 
         one_hour_change = change_over(history, entry_ts, 3600)
         one_day_change = change_over(history, entry_ts, 24 * 3600)
@@ -514,6 +558,9 @@ def analyze_repricing(rows, args):
             "settle_ts": settle_ts,
             "settle_utc": row.get("settle_utc") or _to_utc_str(settle_ts),
             "entry_price": entry_price,
+            "resolved_outcome": resolved_outcome,
+            "history_source": history_source,
+            "history_error": history_error,
             "one_hour_change": one_hour_change,
             "one_day_change": one_day_change,
             "one_week_change": one_week_change,
@@ -571,6 +618,11 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conf
         "tradeable_count": len(executed_rows),
         "tradeable_rate": (len(executed_rows) / len(rows)) if rows else None,
         "best_runup_pct": _distribution([row.get("best_runup_pct") for row in rows]),
+        "history_source_rates": {
+            "api_only": _rate(rows, lambda row: row.get("history_source") == "api_only"),
+            "api_plus_settlement": _rate(rows, lambda row: row.get("history_source") == "api_plus_settlement"),
+            "settlement_only": _rate(rows, lambda row: row.get("history_source") == "settlement_only"),
+        },
         "exit_return_pct": _distribution([row.get("exit_return_pct") for row in executed_rows]),
         "exit_holding_hours": _distribution([row.get("exit_holding_hours") for row in executed_rows]),
         "exit_reason_rates": {
@@ -632,7 +684,15 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conf
     return summary
 
 
-def _release_catalyst_leaderboard(rows, windows_days, limit=5):
+def _release_catalyst_leaderboard(
+    rows,
+    windows_days,
+    take_profit_levels,
+    target_prices,
+    conflict_runup_levels,
+    conflict_target_prices,
+    limit=5,
+):
     release_rows = [row for row in rows if str(row.get("domain_action_family") or "") == "release"]
     if not release_rows:
         return []
@@ -644,7 +704,14 @@ def _release_catalyst_leaderboard(rows, windows_days, limit=5):
     window_key = f"{windows_days[0]}d" if windows_days else "3d"
     leaderboard = []
     for catalyst_type, items in sorted(grouped.items()):
-        summary = _summarize_group(items, windows_days, [], [], [], [])
+        summary = _summarize_group(
+            items,
+            windows_days,
+            take_profit_levels,
+            target_prices,
+            conflict_runup_levels,
+            conflict_target_prices,
+        )
         window_summary = (summary.get("windows") or {}).get(window_key) or {}
         top_rows = sorted(
             items,
@@ -675,6 +742,7 @@ def _release_catalyst_leaderboard(rows, windows_days, limit=5):
                         "repricing_score": row.get("repricing_score"),
                         "release_subject_score": row.get("repricing_release_subject_score"),
                         "release_legitimacy_score": row.get("repricing_release_legitimacy_score"),
+                        "history_source": row.get("history_source"),
                     }
                     for row in top_rows
                 ],
@@ -781,7 +849,15 @@ def main():
         ),
         reverse=True,
     )[: args.top_limit]
-    release_catalyst_leaderboard = _release_catalyst_leaderboard(analyses_ok, windows_days, limit=args.top_limit)
+    release_catalyst_leaderboard = _release_catalyst_leaderboard(
+        analyses_ok,
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+        limit=args.top_limit,
+    )
 
     summary = {
         "dataset_source": source_meta,
