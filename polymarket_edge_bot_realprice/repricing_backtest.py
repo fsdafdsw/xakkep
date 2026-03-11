@@ -192,7 +192,12 @@ def _extract_catalyst_type(row):
         return str(direct)
     components = _extract_domain_components(row)
     catalyst_type = components.get("catalyst_type")
-    return str(catalyst_type) if catalyst_type else None
+    if catalyst_type:
+        return str(catalyst_type)
+    parsed = parse_catalyst(row.get("question"))
+    if parsed and parsed.get("catalyst_type"):
+        return str(parsed.get("catalyst_type"))
+    return None
 
 
 def _extract_catalyst_strength(row):
@@ -209,7 +214,12 @@ def _extract_catalyst_hardness(row):
         return str(direct)
     components = _extract_domain_components(row)
     hardness = components.get("catalyst_hardness")
-    return str(hardness) if hardness else None
+    if hardness:
+        return str(hardness)
+    parsed = parse_catalyst(row.get("question"))
+    if parsed and parsed.get("catalyst_hardness"):
+        return str(parsed.get("catalyst_hardness"))
+    return None
 
 
 def _extract_repricing_score(row):
@@ -534,9 +544,9 @@ def analyze_repricing(rows, args):
             "link": f"https://polymarket.com/event/{row.get('event_slug')}?tid={token_id}" if row.get("event_slug") else None,
             "domain_name": row.get("domain_name"),
             "domain_action_family": _extract_domain_action_family(row),
-            "catalyst_type": _extract_catalyst_type(row),
+            "catalyst_type": rebuilt_repricing.get("catalyst_type") or _extract_catalyst_type(row),
             "catalyst_strength": _extract_catalyst_strength(row),
-            "catalyst_hardness": _extract_catalyst_hardness(row),
+            "catalyst_hardness": rebuilt_repricing.get("hardness") or _extract_catalyst_hardness(row),
             "repricing_potential": _extract_repricing_potential(row),
             "repricing_score": rebuilt_repricing.get("score", _extract_repricing_score(row)),
             "repricing_watch_score": rebuilt_repricing.get("watch_score", _extract_repricing_watch_score(row)),
@@ -779,6 +789,97 @@ def _release_catalyst_leaderboard(
     return leaderboard
 
 
+def _hostage_negotiation_leaderboard(
+    rows,
+    windows_days,
+    take_profit_levels,
+    target_prices,
+    conflict_runup_levels,
+    conflict_target_prices,
+    limit=5,
+):
+    negotiation_catalysts = {"negotiation", "ceasefire", "call_or_meeting", "summit"}
+    relevant_rows = []
+    for row in rows:
+        verdict = str(row.get("repricing_verdict") or "")
+        if verdict not in {"watch", "watch_high_upside", "watch_late"}:
+            continue
+        action_family = str(row.get("domain_action_family") or "")
+        catalyst_type = str(row.get("catalyst_type") or "")
+        is_hostage = action_family == "release" and catalyst_type == "hostage_release"
+        is_negotiation = action_family == "diplomacy" and catalyst_type in negotiation_catalysts
+        if is_hostage or is_negotiation:
+            relevant_rows.append(row)
+
+    if not relevant_rows:
+        return []
+
+    grouped = defaultdict(list)
+    for row in relevant_rows:
+        grouped[str(row.get("catalyst_type") or "unknown")].append(row)
+
+    window_key = f"{windows_days[0]}d" if windows_days else "3d"
+    leaderboard = []
+    for catalyst_type, items in sorted(grouped.items()):
+        summary = _summarize_group(
+            items,
+            windows_days,
+            take_profit_levels,
+            target_prices,
+            conflict_runup_levels,
+            conflict_target_prices,
+        )
+        window_summary = (summary.get("windows") or {}).get(window_key) or {}
+        top_rows = sorted(
+            items,
+            key=lambda row: (
+                row.get("best_runup_pct") if row.get("best_runup_pct") is not None else float("-inf"),
+                row.get("repricing_watch_score") or 0.0,
+                row.get("repricing_score") or 0.0,
+            ),
+            reverse=True,
+        )[:limit]
+        leaderboard.append(
+            {
+                "catalyst_type": catalyst_type,
+                "count": len(items),
+                "real_forward_history_count": ((summary.get("history_quality") or {}).get("real_forward_history_count")),
+                "settlement_fallback_count": ((summary.get("history_quality") or {}).get("settlement_fallback_count")),
+                "mean_best_runup_pct": (summary.get("best_runup_pct") or {}).get("mean"),
+                "mean_3d_runup_pct": (window_summary.get("runup_pct") or {}).get("mean"),
+                "tp25_3d": (window_summary.get("label_rates") or {}).get("repriced_25pct"),
+                "tp50_3d": (window_summary.get("label_rates") or {}).get("repriced_50pct"),
+                "watch_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch"),
+                "watch_high_upside_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch_high_upside"),
+                "watch_late_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch_late"),
+                "mean_attention_gap": ((summary.get("repricing_features") or {}).get("attention_gap") or {}).get("mean"),
+                "mean_already_priced_penalty": ((summary.get("repricing_features") or {}).get("already_priced_penalty") or {}).get("mean"),
+                "top_cases": [
+                    {
+                        "question": row.get("question"),
+                        "repricing_verdict": row.get("repricing_verdict"),
+                        "best_runup_pct": row.get("best_runup_pct"),
+                        "repricing_watch_score": row.get("repricing_watch_score"),
+                        "repricing_attention_gap": row.get("repricing_attention_gap"),
+                        "repricing_already_priced_penalty": row.get("repricing_already_priced_penalty"),
+                        "history_source": row.get("history_source"),
+                    }
+                    for row in top_rows
+                ],
+            }
+        )
+
+    leaderboard.sort(
+        key=lambda item: (
+            item.get("mean_3d_runup_pct") if item.get("mean_3d_runup_pct") is not None else float("-inf"),
+            item.get("tp25_3d") if item.get("tp25_3d") is not None else float("-inf"),
+            item.get("mean_best_runup_pct") if item.get("mean_best_runup_pct") is not None else float("-inf"),
+        ),
+        reverse=True,
+    )
+    return leaderboard
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Backtest repricing potential after a model signal.")
     parser.add_argument("--start-date", default="2026-01-01", help="UTC date, e.g. 2026-01-01")
@@ -893,6 +994,15 @@ def main():
         conflict_target_prices,
         limit=args.top_limit,
     )
+    hostage_negotiation_leaderboard = _hostage_negotiation_leaderboard(
+        analyses_ok,
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+        limit=args.top_limit,
+    )
 
     summary = {
         "dataset_source": source_meta,
@@ -921,6 +1031,7 @@ def main():
         "by_catalyst_type": by_catalyst_type_summary,
         "by_repricing_verdict": by_repricing_verdict_summary,
         "release_catalyst_leaderboard": release_catalyst_leaderboard,
+        "hostage_negotiation_leaderboard": hostage_negotiation_leaderboard,
         "top_repricing": top_repricing,
         "errors": [row for row in analyses if row.get("error")],
     }
@@ -960,6 +1071,17 @@ def main():
                 f"tradeable={item.get('tradeable_count')} "
                 f"real_forward={item.get('real_forward_history_count')} "
                 f"fallback={item.get('settlement_fallback_count')}"
+            )
+
+    if hostage_negotiation_leaderboard:
+        print("\nHostage / negotiation leaderboard:")
+        for item in hostage_negotiation_leaderboard[:5]:
+            print(
+                f"- catalyst={item.get('catalyst_type')} count={item.get('count')} "
+                f"runup3d={item.get('mean_3d_runup_pct')} tp25={item.get('tp25_3d')} "
+                f"watch={item.get('watch_rate')} "
+                f"watch_high_upside={item.get('watch_high_upside_rate')} "
+                f"watch_late={item.get('watch_late_rate')}"
             )
 
     json_output = Path(args.json_output) if args.json_output else _default_json_output(args.start_date, args.end_date)
