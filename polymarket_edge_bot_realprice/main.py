@@ -625,7 +625,7 @@ def _build_release_watchlist(value_bets, watchlist, rejected_candidates):
             if str(row.get("domain_action_family") or "") != "release":
                 continue
             verdict = str(row.get("repricing_verdict") or "")
-            if verdict not in {"watch", "watch_high_upside", "watch_late", "buy_now"}:
+            if verdict not in {"watch", "watch_high_upside", "watch_late"}:
                 continue
             item = dict(row)
             item["radar_source"] = source_name
@@ -641,6 +641,37 @@ def _build_release_watchlist(value_bets, watchlist, rejected_candidates):
         )
     )
     return release_rows[:MAX_RELEASE_WATCHLIST]
+
+
+def _build_release_buy_now(value_bets, watchlist, rejected_candidates):
+    release_rows = []
+    seen = set()
+    for source_name, rows in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in rows:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            if str(row.get("domain_action_family") or "") != "release":
+                continue
+            if str(row.get("repricing_verdict") or "") != "buy_now":
+                continue
+            item = dict(row)
+            item["radar_source"] = source_name
+            release_rows.append(item)
+            seen.add(link)
+    release_rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_release_legitimacy_score") or 0.0),
+            -(x.get("repricing_release_subject_score") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return release_rows[:MAX_RELEASE_BUY_NOW]
 
 
 def _format_geopolitical_radar(rank, candidate):
@@ -890,6 +921,8 @@ def run():
     geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
     conflict_leaderboard = _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates)
     conflict_links = {candidate.get("link") for candidate in conflict_leaderboard if candidate.get("link")}
+    release_buy_now = _build_release_buy_now(value_bets, watchlist, rejected_candidates)
+    release_buy_links = {candidate.get("link") for candidate in release_buy_now if candidate.get("link")}
     release_watchlist = _build_release_watchlist(value_bets, watchlist, rejected_candidates)
     release_links = {candidate.get("link") for candidate in release_watchlist if candidate.get("link")}
     high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
@@ -899,11 +932,17 @@ def run():
         for candidate in geopolitical_radar
         if candidate.get("link") not in high_upside_links
         and candidate.get("link") not in conflict_links
+        and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
     ]
     conflict_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(conflict_leaderboard))
         if conflict_leaderboard
+        else "none"
+    )
+    release_buy_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(release_buy_now))
+        if release_buy_now
         else "none"
     )
     release_text = (
@@ -939,6 +978,10 @@ Conflict Repricing Leaders
 
 {conflict_text}
 
+Release Buy Now
+
+{release_buy_text}
+
 Release Watchlist
 
 {release_text}
@@ -968,6 +1011,7 @@ Geopolitical Repricing Radar
         "orderbook_coverage": coverage["book_available"],
         "value_bets": value_bets,
         "conflict_leaderboard": conflict_leaderboard,
+        "release_buy_now": release_buy_now,
         "release_watchlist": release_watchlist,
         "high_upside_watchlist": high_upside_watchlist,
         "geopolitical_radar": geopolitical_radar_core,
@@ -985,6 +1029,7 @@ Geopolitical Repricing Radar
             "max_diagnostic_candidates": MAX_DIAGNOSTIC_CANDIDATES,
             "max_geopolitical_radar": MAX_GEOPOLITICAL_RADAR,
             "max_conflict_leaderboard": MAX_CONFLICT_LEADERBOARD,
+            "max_release_buy_now": MAX_RELEASE_BUY_NOW,
             "max_release_watchlist": MAX_RELEASE_WATCHLIST,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
             "use_meta_model_selector": USE_META_MODEL_SELECTOR,
