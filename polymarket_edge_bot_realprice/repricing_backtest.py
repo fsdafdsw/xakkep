@@ -972,6 +972,96 @@ def _diplomacy_catalyst_leaderboard(
     return leaderboard
 
 
+def _meeting_subtype_leaderboard(
+    rows,
+    windows_days,
+    take_profit_levels,
+    target_prices,
+    conflict_runup_levels,
+    conflict_target_prices,
+    limit=5,
+):
+    relevant_rows = []
+    for row in rows:
+        action_family = str(row.get("domain_action_family") or "")
+        catalyst_type = str(row.get("catalyst_type") or "")
+        if action_family != "diplomacy":
+            continue
+        if catalyst_type != "call_or_meeting":
+            continue
+        relevant_rows.append(row)
+
+    if not relevant_rows:
+        return []
+
+    grouped = defaultdict(list)
+    for row in relevant_rows:
+        grouped[str(row.get("meeting_subtype") or "unknown")].append(row)
+
+    window_key = f"{windows_days[0]}d" if windows_days else "3d"
+    leaderboard = []
+    for meeting_subtype, items in sorted(grouped.items()):
+        summary = _summarize_group(
+            items,
+            windows_days,
+            take_profit_levels,
+            target_prices,
+            conflict_runup_levels,
+            conflict_target_prices,
+        )
+        window_summary = (summary.get("windows") or {}).get(window_key) or {}
+        top_rows = sorted(
+            items,
+            key=lambda row: (
+                row.get("best_runup_pct") if row.get("best_runup_pct") is not None else float("-inf"),
+                row.get("repricing_watch_score") or 0.0,
+                row.get("repricing_score") or 0.0,
+            ),
+            reverse=True,
+        )[:limit]
+        leaderboard.append(
+            {
+                "meeting_subtype": meeting_subtype,
+                "count": len(items),
+                "real_forward_history_count": ((summary.get("history_quality") or {}).get("real_forward_history_count")),
+                "settlement_fallback_count": ((summary.get("history_quality") or {}).get("settlement_fallback_count")),
+                "mean_best_runup_pct": (summary.get("best_runup_pct") or {}).get("mean"),
+                "mean_3d_runup_pct": (window_summary.get("runup_pct") or {}).get("mean"),
+                "tp25_3d": (window_summary.get("label_rates") or {}).get("repriced_25pct"),
+                "tp50_3d": (window_summary.get("label_rates") or {}).get("repriced_50pct"),
+                "watch_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch"),
+                "watch_high_upside_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch_high_upside"),
+                "watch_late_rate": _rate(items, lambda row: row.get("repricing_verdict") == "watch_late"),
+                "ignore_rate": _rate(items, lambda row: row.get("repricing_verdict") == "ignore"),
+                "mean_attention_gap": ((summary.get("repricing_features") or {}).get("attention_gap") or {}).get("mean"),
+                "mean_already_priced_penalty": ((summary.get("repricing_features") or {}).get("already_priced_penalty") or {}).get("mean"),
+                "top_cases": [
+                    {
+                        "question": row.get("question"),
+                        "repricing_verdict": row.get("repricing_verdict"),
+                        "best_runup_pct": row.get("best_runup_pct"),
+                        "repricing_watch_score": row.get("repricing_watch_score"),
+                        "repricing_score": row.get("repricing_score"),
+                        "repricing_attention_gap": row.get("repricing_attention_gap"),
+                        "repricing_already_priced_penalty": row.get("repricing_already_priced_penalty"),
+                        "history_source": row.get("history_source"),
+                    }
+                    for row in top_rows
+                ],
+            }
+        )
+
+    leaderboard.sort(
+        key=lambda item: (
+            item.get("mean_3d_runup_pct") if item.get("mean_3d_runup_pct") is not None else float("-inf"),
+            item.get("tp25_3d") if item.get("tp25_3d") is not None else float("-inf"),
+            item.get("mean_best_runup_pct") if item.get("mean_best_runup_pct") is not None else float("-inf"),
+        ),
+        reverse=True,
+    )
+    return leaderboard
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Backtest repricing potential after a model signal.")
     parser.add_argument("--start-date", default="2026-01-01", help="UTC date, e.g. 2026-01-01")
@@ -1104,6 +1194,15 @@ def main():
         conflict_target_prices,
         limit=args.top_limit,
     )
+    meeting_subtype_leaderboard = _meeting_subtype_leaderboard(
+        analyses_ok,
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+        limit=args.top_limit,
+    )
 
     summary = {
         "dataset_source": source_meta,
@@ -1134,6 +1233,7 @@ def main():
         "release_catalyst_leaderboard": release_catalyst_leaderboard,
         "hostage_negotiation_leaderboard": hostage_negotiation_leaderboard,
         "diplomacy_catalyst_leaderboard": diplomacy_catalyst_leaderboard,
+        "meeting_subtype_leaderboard": meeting_subtype_leaderboard,
         "top_repricing": top_repricing,
         "errors": [row for row in analyses if row.get("error")],
     }
@@ -1194,6 +1294,19 @@ def main():
                 f"runup3d={item.get('mean_3d_runup_pct')} tp25={item.get('tp25_3d')} "
                 f"buy_now={item.get('buy_now_rate')} watch={item.get('watch_rate')} "
                 f"watch_high_upside={item.get('watch_high_upside_rate')} "
+                f"real_forward={item.get('real_forward_history_count')} "
+                f"fallback={item.get('settlement_fallback_count')}"
+            )
+
+    if meeting_subtype_leaderboard:
+        print("\nMeeting subtype leaderboard:")
+        for item in meeting_subtype_leaderboard[:5]:
+            print(
+                f"- subtype={item.get('meeting_subtype')} count={item.get('count')} "
+                f"runup3d={item.get('mean_3d_runup_pct')} tp25={item.get('tp25_3d')} "
+                f"watch={item.get('watch_rate')} "
+                f"watch_high_upside={item.get('watch_high_upside_rate')} "
+                f"ignore={item.get('ignore_rate')} "
                 f"real_forward={item.get('real_forward_history_count')} "
                 f"fallback={item.get('settlement_fallback_count')}"
             )
