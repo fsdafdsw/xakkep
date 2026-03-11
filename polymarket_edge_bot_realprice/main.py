@@ -9,6 +9,7 @@ from filter_policy import (
     scoring_policy_for_market,
     signal_bucket,
 )
+from exit_policy import live_exit_plan
 from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
 from probability_model import (
     estimated_probability,
@@ -370,6 +371,28 @@ def _header_lines(rank, candidate):
     return lines
 
 
+def _suggested_exit_line(candidate):
+    if str(candidate.get("repricing_verdict") or "") != "buy_now":
+        return None
+    entry_price = candidate.get("entry")
+    if entry_price is None:
+        return None
+    plan = live_exit_plan(
+        candidate.get("domain_action_family"),
+        repricing_verdict=candidate.get("repricing_verdict"),
+        entry_price=entry_price,
+    )
+    take_profit = plan.get("take_profit_price")
+    stop_loss = plan.get("stop_loss_price")
+    time_stop_days = plan.get("time_stop_days")
+    if take_profit is None or stop_loss is None or time_stop_days is None:
+        return None
+    return (
+        f"Suggested exit: take profit near {take_profit:.3f} | "
+        f"stop near {stop_loss:.3f} | time stop {int(round(time_stop_days))}d"
+    )
+
+
 def _format_signal(rank, candidate):
     odds_bits = ""
     if candidate.get("odds_implied_probability") is not None:
@@ -393,6 +416,9 @@ def _format_signal(rank, candidate):
     lines.append(
         f"Confidence {candidate['confidence']:.2f} | Stake ${candidate['stake_usd']:.2f}{meta_bits}{odds_bits}{relation_bits}"
     )
+    exit_line = _suggested_exit_line(candidate)
+    if exit_line:
+        lines.append(exit_line)
     return "\n".join(lines)
 
 
@@ -553,6 +579,9 @@ def _format_geopolitical_radar(rank, candidate):
     lines.append(f"Verdict: {verdict}")
     lines.append(f"Why: {reason.capitalize()}")
     lines.append(f"Price now: {candidate['entry']:.3f}")
+    exit_line = _suggested_exit_line(candidate)
+    if exit_line:
+        lines.append(exit_line)
     return "\n".join(lines)
 
 
