@@ -786,6 +786,44 @@ def _build_ceasefire_watchlist(value_bets, watchlist, rejected_candidates):
     return rows[:MAX_CEASEFIRE_WATCHLIST]
 
 
+def _build_talk_call_watchlist(value_bets, watchlist, rejected_candidates):
+    rows = []
+    seen = set()
+    for source_name, candidates in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in candidates:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            verdict = str(row.get("repricing_verdict") or "")
+            if verdict not in {"watch", "watch_high_upside", "watch_late"}:
+                continue
+            if str(row.get("domain_action_family") or "") != "diplomacy":
+                continue
+            if str(row.get("catalyst_type") or "") != "call_or_meeting":
+                continue
+            if str(row.get("meeting_subtype") or "") != "talk_call":
+                continue
+            item = dict(row)
+            item["radar_source"] = source_name
+            rows.append(item)
+            seen.add(link)
+
+    rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_watch_score") or 0.0),
+            -(x.get("repricing_optionality_score") or 0.0),
+            -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return rows[:MAX_TALK_CALL_WATCHLIST]
+
+
 def _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates):
     rows = []
     seen = set()
@@ -804,6 +842,8 @@ def _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates):
             if str(row.get("domain_action_family") or "") != "diplomacy":
                 continue
             if str(row.get("catalyst_type") or "") != "call_or_meeting":
+                continue
+            if str(row.get("meeting_subtype") or "") == "talk_call":
                 continue
             item = dict(row)
             item["radar_source"] = source_name
@@ -1166,6 +1206,15 @@ def run():
         and candidate.get("link") not in release_links
     ]
     ceasefire_links = {candidate.get("link") for candidate in ceasefire_watchlist if candidate.get("link")}
+    talk_call_watchlist = [
+        candidate
+        for candidate in _build_talk_call_watchlist(value_bets, watchlist, rejected_candidates)
+        if candidate.get("link") not in legal_links
+        and candidate.get("link") not in release_buy_links
+        and candidate.get("link") not in release_links
+        and candidate.get("link") not in ceasefire_links
+    ]
+    talk_call_links = {candidate.get("link") for candidate in talk_call_watchlist if candidate.get("link")}
     call_meeting_watchlist = [
         candidate
         for candidate in _build_call_meeting_watchlist(value_bets, watchlist, rejected_candidates)
@@ -1173,6 +1222,7 @@ def run():
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
         and candidate.get("link") not in ceasefire_links
+        and candidate.get("link") not in talk_call_links
     ]
     call_meeting_links = {candidate.get("link") for candidate in call_meeting_watchlist if candidate.get("link")}
     hostage_negotiation_watchlist = [
@@ -1182,6 +1232,7 @@ def run():
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
         and candidate.get("link") not in ceasefire_links
+        and candidate.get("link") not in talk_call_links
         and candidate.get("link") not in call_meeting_links
     ]
     hostage_negotiation_links = {candidate.get("link") for candidate in hostage_negotiation_watchlist if candidate.get("link")}
@@ -1196,6 +1247,8 @@ def run():
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
         and candidate.get("link") not in ceasefire_links
+        and candidate.get("link") not in talk_call_links
+        and candidate.get("link") not in call_meeting_links
         and candidate.get("link") not in hostage_negotiation_links
     ]
     conflict_text = (
@@ -1221,6 +1274,11 @@ def run():
     ceasefire_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(ceasefire_watchlist))
         if ceasefire_watchlist
+        else "none"
+    )
+    talk_call_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(talk_call_watchlist))
+        if talk_call_watchlist
         else "none"
     )
     call_meeting_text = (
@@ -1277,7 +1335,11 @@ Ceasefire Watchlist
 
 {ceasefire_text}
 
-Call / Meeting Watchlist
+Talk / Call Watchlist
+
+{talk_call_text}
+
+Meeting / Talks Resume Watchlist
 
 {call_meeting_text}
 
@@ -1314,6 +1376,7 @@ Geopolitical Repricing Radar
         "release_buy_now": release_buy_now,
         "release_watchlist": release_watchlist,
         "ceasefire_watchlist": ceasefire_watchlist,
+        "talk_call_watchlist": talk_call_watchlist,
         "call_meeting_watchlist": call_meeting_watchlist,
         "hostage_negotiation_watchlist": hostage_negotiation_watchlist,
         "high_upside_watchlist": high_upside_watchlist,
@@ -1336,6 +1399,7 @@ Geopolitical Repricing Radar
             "max_release_buy_now": MAX_RELEASE_BUY_NOW,
             "max_release_watchlist": MAX_RELEASE_WATCHLIST,
             "max_ceasefire_watchlist": MAX_CEASEFIRE_WATCHLIST,
+            "max_talk_call_watchlist": MAX_TALK_CALL_WATCHLIST,
             "max_call_meeting_watchlist": MAX_CALL_MEETING_WATCHLIST,
             "max_hostage_negotiation_watchlist": MAX_HOSTAGE_NEGOTIATION_WATCHLIST,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
