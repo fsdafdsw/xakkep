@@ -3,7 +3,11 @@ from config import (
     CONFLICT_MIN_SETUP_SCORE,
     CONFLICT_MIN_URGENCY_SCORE,
     CONFLICT_REPRICING_BUY_SCORE,
+    DIPLOMACY_CALL_HIGH_UPSIDE_MIN_ATTENTION_GAP,
     DIPLOMACY_CALL_HIGH_UPSIDE_OPTIONALITY,
+    DIPLOMACY_CALL_MAX_ALREADY_PRICED,
+    DIPLOMACY_CALL_MAX_ENTRY_PRICE,
+    DIPLOMACY_CALL_MIN_ATTENTION_GAP,
     DIPLOMACY_CEASEFIRE_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_CEASEFIRE_WATCH_ONLY,
     DIPLOMACY_CEASEFIRE_WATCH_SCORE,
@@ -69,6 +73,9 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
         "min_setup_score": 0.0,
         "min_urgency_score": 0.0,
         "family_bonus": 0.0,
+        "max_entry_price": MAX_REPRICING_BUY_PRICE,
+        "min_attention_gap": 0.0,
+        "high_upside_min_attention_gap": 0.0,
     }
 
     if action_family == "conflict":
@@ -105,16 +112,19 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
             policy.update(
                 {
                     "watch_threshold": DIPLOMACY_CALL_WATCH_SCORE,
-                    "min_underreaction": 0.54,
+                    "min_underreaction": 0.56,
                     "min_fresh": 0.72,
                     "max_chase": 0.10,
-                    "max_already_priced": 0.24,
+                    "max_already_priced": DIPLOMACY_CALL_MAX_ALREADY_PRICED,
                     "high_upside_optionality": DIPLOMACY_CALL_HIGH_UPSIDE_OPTIONALITY,
                     "high_upside_max_chase": 0.14,
-                    "high_upside_max_already_priced": 0.28,
+                    "high_upside_max_already_priced": DIPLOMACY_CALL_MAX_ALREADY_PRICED,
                     "allow_buy_now": not DIPLOMACY_CALL_WATCH_ONLY,
                     "require_hard_for_buy": False,
                     "require_official_source_for_buy": False,
+                    "max_entry_price": DIPLOMACY_CALL_MAX_ENTRY_PRICE,
+                    "min_attention_gap": DIPLOMACY_CALL_MIN_ATTENTION_GAP,
+                    "high_upside_min_attention_gap": DIPLOMACY_CALL_HIGH_UPSIDE_MIN_ATTENTION_GAP,
                 }
             )
         elif catalyst_type == "ceasefire":
@@ -405,9 +415,10 @@ def score_repricing_signal(
             + (family_policy["family_bonus"] * 0.4)
         )
     clean_entry = (
-        entry_price <= MAX_REPRICING_BUY_PRICE
+        entry_price <= family_policy["max_entry_price"]
         and underreaction_score >= family_policy["min_underreaction"]
         and fresh_catalyst_score >= family_policy["min_fresh"]
+        and attention_gap >= family_policy["min_attention_gap"]
         and trend_chase_penalty <= family_policy["max_chase"]
         and already_priced_penalty <= family_policy["max_already_priced"]
         and (
@@ -464,13 +475,14 @@ def score_repricing_signal(
             family_policy["allow_high_upside"]
             and catalyst_hardness != "hard"
             and optionality_score >= family_policy["high_upside_optionality"]
+            and attention_gap >= family_policy["high_upside_min_attention_gap"]
             and trend_chase_penalty <= family_policy["high_upside_max_chase"]
             and already_priced_penalty <= family_policy["high_upside_max_already_priced"]
         ):
             verdict = "watch_high_upside"
             reason = "large repricing optionality, but catalyst still soft"
         if (
-            entry_price > MAX_REPRICING_BUY_PRICE
+            entry_price > family_policy["max_entry_price"]
             or trend_chase_penalty > family_policy["max_chase"]
             or already_priced_penalty > family_policy["max_already_priced"]
         ):
