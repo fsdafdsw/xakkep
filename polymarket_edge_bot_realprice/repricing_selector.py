@@ -4,6 +4,7 @@ from config import (
     MIN_REPRICING_BUY_SCORE,
     MIN_REPRICING_WATCH_SCORE,
 )
+from repricing_context import build_repricing_context
 
 
 def _clamp(value, low=0.0, high=1.0):
@@ -32,6 +33,12 @@ def score_repricing_signal(
     net_edge,
     net_edge_lcb,
     spread,
+    liquidity=None,
+    volume24h=None,
+    one_hour_change=None,
+    one_day_change=None,
+    one_week_change=None,
+    hours_to_close=None,
     model,
     market_type=None,
     category_group=None,
@@ -69,14 +76,34 @@ def score_repricing_signal(
     catalyst_hardness = str(components.get("catalyst_hardness") or "soft")
     catalyst_reversibility = str(components.get("catalyst_reversibility") or "high")
     catalyst_has_official_source = bool(components.get("catalyst_has_official_source"))
-    liquidity = _safe_float(components.get("liquidity"), 0.0)
-    volume24h = _safe_float(components.get("volume24h"), 0.0)
+    liquidity = _safe_float(liquidity, _safe_float(components.get("liquidity"), 0.0))
+    volume24h = _safe_float(volume24h, _safe_float(components.get("volume24h"), 0.0))
+    one_hour_change = _safe_float(one_hour_change, _safe_float(components.get("one_hour_change"), 0.0))
+    one_day_change = _safe_float(one_day_change, _safe_float(components.get("one_day_change"), 0.0))
+    one_week_change = _safe_float(one_week_change, _safe_float(components.get("one_week_change"), 0.0))
+    hours_to_close = _safe_float(hours_to_close, _safe_float(components.get("hours_to_close"), 0.0))
     relation_support_confidence = _safe_float(relation_residual.get("support_confidence"), 0.0)
     relation_residual_gap = _safe_float(relation_residual.get("residual"), 0.0)
 
-    attention_gap = _clamp(repricing_potential - entry_price)
-    stale_score = _clamp((attention_gap * 0.70) + (max(0.0, 0.18 - entry_price) * 1.10))
-    already_priced_penalty = _clamp(max(0.0, entry_price - MAX_REPRICING_BUY_PRICE) * 1.7)
+    repricing_context = build_repricing_context(
+        entry_price=entry_price,
+        repricing_potential=repricing_potential,
+        catalyst_strength=catalyst_strength,
+        spread=spread,
+        liquidity=liquidity,
+        volume24h=volume24h,
+        one_hour_change=one_hour_change,
+        one_day_change=one_day_change,
+        one_week_change=one_week_change,
+        hours_to_close=hours_to_close,
+        max_buy_price=MAX_REPRICING_BUY_PRICE,
+    )
+    attention_gap = repricing_context["attention_gap"]
+    stale_score = repricing_context["stale_score"]
+    already_priced_penalty = repricing_context["already_priced_penalty"]
+    underreaction_score = repricing_context["underreaction_score"]
+    fresh_catalyst_score = repricing_context["fresh_catalyst_score"]
+    trend_chase_penalty = repricing_context["trend_chase_penalty"]
     spread_penalty = _clamp(max(0.0, spread - min(MAX_SPREAD, 0.05)) * 6.0)
     liquidity_penalty = _clamp(max(0.0, (250.0 - liquidity) / 250.0) * 0.25)
     volume_penalty = _clamp(max(0.0, (200.0 - volume24h) / 200.0) * 0.18)
@@ -90,9 +117,11 @@ def score_repricing_signal(
         catalyst_bonus += 0.04
 
     score = 0.18
-    score += repricing_potential * 0.24
-    score += attention_gap * 0.22
-    score += stale_score * 0.14
+    score += repricing_potential * 0.17
+    score += underreaction_score * 0.20
+    score += fresh_catalyst_score * 0.16
+    score += attention_gap * 0.12
+    score += stale_score * 0.10
     score += catalyst_bonus
     score += (confidence - 0.5) * 0.18
     score += (domain_confidence - 0.5) * 0.12
@@ -101,26 +130,44 @@ def score_repricing_signal(
     score += max(0.0, min(0.03, net_edge)) * 1.8
     score -= max(0.0, -net_edge_lcb) * 0.35
     score -= already_priced_penalty * 0.28
+    score -= trend_chase_penalty * 0.18
     score -= spread_penalty * 0.18
     score -= liquidity_penalty
     score -= volume_penalty
 
-    watch_score = score + (attention_gap * 0.10) + (0.04 if catalyst_type in {"hostage_release", "appeal", "court_ruling", "military_action"} else 0.0)
+    watch_score = (
+        score
+        + (attention_gap * 0.08)
+        + (underreaction_score * 0.08)
+        + (fresh_catalyst_score * 0.06)
+        + (0.04 if catalyst_type in {"hostage_release", "appeal", "court_ruling", "military_action"} else 0.0)
+    )
     score = _clamp(score)
     watch_score = _clamp(watch_score)
+    clean_entry = (
+        entry_price <= MAX_REPRICING_BUY_PRICE
+        and underreaction_score >= 0.48
+        and fresh_catalyst_score >= 0.58
+        and trend_chase_penalty <= 0.16
+        and already_priced_penalty <= 0.34
+    )
 
     verdict = "ignore"
     reason = "repricing score too low"
-    if score >= MIN_REPRICING_BUY_SCORE and entry_price <= MAX_REPRICING_BUY_PRICE:
+    if score >= MIN_REPRICING_BUY_SCORE and clean_entry:
         verdict = "buy_now"
-        reason = "strong catalyst with enough attention gap"
+        reason = "fresh catalyst and market still underreacted"
     elif watch_score >= MIN_REPRICING_WATCH_SCORE:
-        if entry_price > MAX_REPRICING_BUY_PRICE:
+        if entry_price > MAX_REPRICING_BUY_PRICE or trend_chase_penalty > 0.16 or already_priced_penalty > 0.34:
             verdict = "watch_late"
-            reason = "interesting catalyst, but market may already be partially repriced"
+            reason = "strong catalyst, but recent move suggests part of repricing is gone"
         else:
             verdict = "watch"
-            reason = "strong catalyst, waiting for cleaner entry or confirmation"
+            reason = "strong catalyst, but waiting for cleaner entry or confirmation"
+    elif trend_chase_penalty >= 0.32:
+        reason = "market already moved too much for a clean repricing entry"
+    elif underreaction_score < 0.35:
+        reason = "catalyst is not strong enough versus current market pricing"
 
     return {
         "score": score,
@@ -132,6 +179,14 @@ def score_repricing_signal(
         "attention_gap": attention_gap,
         "stale_score": stale_score,
         "already_priced_penalty": already_priced_penalty,
+        "underreaction_score": underreaction_score,
+        "fresh_catalyst_score": fresh_catalyst_score,
+        "trend_chase_penalty": trend_chase_penalty,
+        "recent_runup": repricing_context["recent_runup"],
+        "recent_selloff": repricing_context["recent_selloff"],
+        "compression_score": repricing_context["compression_score"],
+        "deadline_pressure": repricing_context["deadline_pressure"],
+        "book_quality": repricing_context["book_quality"],
         "catalyst_type": catalyst_type,
         "catalyst_strength": catalyst_strength,
         "action_family": components.get("action_family"),

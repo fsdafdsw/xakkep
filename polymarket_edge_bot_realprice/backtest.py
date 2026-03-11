@@ -304,6 +304,12 @@ class Candidate:
     robustness_score: float
     resolved_outcome: int
     spread: Optional[float]
+    liquidity: float
+    volume24h: float
+    one_hour_change: float
+    one_day_change: float
+    one_week_change: float
+    hours_to_close: float
     policy: dict
     model: dict
 
@@ -548,6 +554,12 @@ def _annotate_candidates_with_repricing_selector(candidates):
             net_edge=candidate.net_edge,
             net_edge_lcb=candidate.net_edge_lcb,
             spread=candidate.spread,
+            liquidity=candidate.liquidity,
+            volume24h=candidate.volume24h,
+            one_hour_change=candidate.one_hour_change,
+            one_day_change=candidate.one_day_change,
+            one_week_change=candidate.one_week_change,
+            hours_to_close=candidate.hours_to_close,
             model=candidate.model,
             market_type=candidate.market_type,
             category_group=candidate.category_group,
@@ -840,6 +852,12 @@ def build_candidates(
                 robustness_score=0.0,
                 resolved_outcome=item["resolved_outcome"],
                 spread=item["spread"],
+                liquidity=snapshot.get("liquidity") or 0.0,
+                volume24h=snapshot.get("volume24h") or 0.0,
+                one_hour_change=snapshot.get("one_hour_change") or 0.0,
+                one_day_change=snapshot.get("one_day_change") or 0.0,
+                one_week_change=snapshot.get("one_week_change") or 0.0,
+                hours_to_close=snapshot.get("hours_to_close") or 0.0,
                 policy={},
                 model=dict(metrics),
             )

@@ -173,6 +173,10 @@ def _extract_repricing_verdict(row):
     return str(verdict) if verdict else None
 
 
+def _extract_repricing_metric(row, key, default=0.0):
+    return _safe_float(row.get(key), default=default) or 0.0
+
+
 def _default_json_output(start_date, end_date):
     return REPORTS_DIR / "research" / f"repricing_backtest_{start_date}_{end_date}.json"
 
@@ -292,6 +296,7 @@ def analyze_repricing(rows, args):
     by_domain_name = defaultdict(list)
     by_action_family = defaultdict(list)
     by_catalyst_type = defaultdict(list)
+    by_repricing_verdict = defaultdict(list)
 
     for idx, row in enumerate(filtered, start=1):
         token_id = row.get("token_id")
@@ -400,6 +405,17 @@ def analyze_repricing(rows, args):
             "repricing_score": _extract_repricing_score(row),
             "repricing_watch_score": _extract_repricing_watch_score(row),
             "repricing_verdict": _extract_repricing_verdict(row),
+            "repricing_attention_gap": _extract_repricing_metric(row, "repricing_attention_gap"),
+            "repricing_underreaction_score": _extract_repricing_metric(row, "repricing_underreaction_score"),
+            "repricing_fresh_catalyst_score": _extract_repricing_metric(row, "repricing_fresh_catalyst_score"),
+            "repricing_trend_chase_penalty": _extract_repricing_metric(row, "repricing_trend_chase_penalty"),
+            "repricing_recent_runup": _extract_repricing_metric(row, "repricing_recent_runup"),
+            "repricing_recent_selloff": _extract_repricing_metric(row, "repricing_recent_selloff"),
+            "repricing_compression_score": _extract_repricing_metric(row, "repricing_compression_score"),
+            "repricing_deadline_pressure": _extract_repricing_metric(row, "repricing_deadline_pressure"),
+            "repricing_book_quality": _extract_repricing_metric(row, "repricing_book_quality"),
+            "repricing_stale_score": _extract_repricing_metric(row, "repricing_stale_score"),
+            "repricing_already_priced_penalty": _extract_repricing_metric(row, "repricing_already_priced_penalty"),
             "market_type": row.get("market_type"),
             "category_group": row.get("category_group"),
             "decision_status": row.get("decision_status"),
@@ -423,6 +439,7 @@ def analyze_repricing(rows, args):
         by_domain_name[str(analysis.get("domain_name") or "unknown")].append(analysis)
         by_action_family[str(analysis.get("domain_action_family") or "unknown")].append(analysis)
         by_catalyst_type[str(analysis.get("catalyst_type") or "unknown")].append(analysis)
+        by_repricing_verdict[str(analysis.get("repricing_verdict") or "unknown")].append(analysis)
 
         if idx % 25 == 0:
             print(f"Processed repricing forward history: {idx}/{len(filtered)}")
@@ -438,6 +455,7 @@ def analyze_repricing(rows, args):
         by_domain_name,
         by_action_family,
         by_catalyst_type,
+        by_repricing_verdict,
     )
 
 
@@ -445,6 +463,19 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conf
     summary = {
         "count": len(rows),
         "best_runup_pct": _distribution([row.get("best_runup_pct") for row in rows]),
+        "repricing_features": {
+            "attention_gap": _distribution([row.get("repricing_attention_gap") for row in rows]),
+            "underreaction_score": _distribution([row.get("repricing_underreaction_score") for row in rows]),
+            "fresh_catalyst_score": _distribution([row.get("repricing_fresh_catalyst_score") for row in rows]),
+            "trend_chase_penalty": _distribution([row.get("repricing_trend_chase_penalty") for row in rows]),
+            "recent_runup": _distribution([row.get("repricing_recent_runup") for row in rows]),
+            "recent_selloff": _distribution([row.get("repricing_recent_selloff") for row in rows]),
+            "compression_score": _distribution([row.get("repricing_compression_score") for row in rows]),
+            "deadline_pressure": _distribution([row.get("repricing_deadline_pressure") for row in rows]),
+            "book_quality": _distribution([row.get("repricing_book_quality") for row in rows]),
+            "stale_score": _distribution([row.get("repricing_stale_score") for row in rows]),
+            "already_priced_penalty": _distribution([row.get("repricing_already_priced_penalty") for row in rows]),
+        },
         "windows": {},
     }
     for window in windows_days:
@@ -530,6 +561,7 @@ def main():
         by_domain_name,
         by_action_family,
         by_catalyst_type,
+        by_repricing_verdict,
     ) = analyze_repricing(rows, args)
     analyses_ok = [row for row in analyses if not row.get("error")]
     print(f"Rows with forward repricing history: {len(analyses_ok)}")
@@ -550,6 +582,10 @@ def main():
     by_catalyst_type_summary = {
         key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_catalyst_type.items())
+    }
+    by_repricing_verdict_summary = {
+        key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
+        for key, value in sorted(by_repricing_verdict.items())
     }
 
     top_repricing = sorted(
@@ -586,6 +622,7 @@ def main():
         "by_domain_name": by_domain_name_summary,
         "by_action_family": by_action_family_summary,
         "by_catalyst_type": by_catalyst_type_summary,
+        "by_repricing_verdict": by_repricing_verdict_summary,
         "top_repricing": top_repricing,
         "errors": [row for row in analyses if row.get("error")],
     }

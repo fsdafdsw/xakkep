@@ -252,6 +252,10 @@ def _build_candidate(item, score_policy):
         "repricing_attention_gap": None,
         "repricing_stale_score": None,
         "repricing_already_priced_penalty": None,
+        "repricing_underreaction_score": None,
+        "repricing_fresh_catalyst_score": None,
+        "repricing_trend_chase_penalty": None,
+        "repricing_recent_runup": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -312,6 +316,12 @@ def _build_candidate(item, score_policy):
         net_edge=item["net_edge"],
         net_edge_lcb=net_edge_lcb,
         spread=item["market"].get("spread"),
+        liquidity=item["market"].get("liquidity"),
+        volume24h=item["market"].get("volume24h"),
+        one_hour_change=item["market"].get("one_hour_change"),
+        one_day_change=item["market"].get("one_day_change"),
+        one_week_change=item["market"].get("one_week_change"),
+        hours_to_close=item["market"].get("hours_to_close"),
         model=candidate["model"],
         market_type=candidate["market_type"],
         category_group=candidate["category_group"],
@@ -324,6 +334,10 @@ def _build_candidate(item, score_policy):
     candidate["repricing_attention_gap"] = repricing.get("attention_gap")
     candidate["repricing_stale_score"] = repricing.get("stale_score")
     candidate["repricing_already_priced_penalty"] = repricing.get("already_priced_penalty")
+    candidate["repricing_underreaction_score"] = repricing.get("underreaction_score")
+    candidate["repricing_fresh_catalyst_score"] = repricing.get("fresh_catalyst_score")
+    candidate["repricing_trend_chase_penalty"] = repricing.get("trend_chase_penalty")
+    candidate["repricing_recent_runup"] = repricing.get("recent_runup")
     candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
     candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")
     return candidate
@@ -546,6 +560,15 @@ def _format_geopolitical_radar(rank, candidate):
     lines.append(
         f"Price now: {candidate['entry']:.3f} | Model fair: {candidate['fair']:.3f} | Net edge: {candidate['net_edge']:.3f}"
     )
+    setup_bits = []
+    if candidate.get("repricing_underreaction_score") is not None:
+        setup_bits.append(f"Underreaction {candidate['repricing_underreaction_score']:.2f}")
+    if candidate.get("repricing_fresh_catalyst_score") is not None:
+        setup_bits.append(f"Fresh catalyst {candidate['repricing_fresh_catalyst_score']:.2f}")
+    if candidate.get("repricing_trend_chase_penalty") is not None:
+        setup_bits.append(f"Chase risk {candidate['repricing_trend_chase_penalty']:.2f}")
+    if setup_bits:
+        lines.append("Setup: " + " | ".join(setup_bits))
     details = [f"Confidence: {candidate['confidence']:.2f}", f"Reason: {reason}"]
     if candidate.get("repricing_attention_gap") is not None:
         details.append(f"Attention gap: {candidate['repricing_attention_gap']:.2f}")

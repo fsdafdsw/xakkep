@@ -46,9 +46,22 @@ _DEFAULT_RELEASE_DISCOVERY_KEYWORDS = (
     "detention",
     "custody",
     "bail",
-    "swap",
-    "exchange",
+    "prisoner swap",
+    "hostage swap",
+    "hostage deal",
+    "hostage exchange",
     "national security law",
+)
+_DEFAULT_DISCOVERY_EXCLUSION_KEYWORDS = (
+    "stock exchange",
+    "market open",
+    "open for trading",
+    "open for stock trading",
+    "trading by",
+    "earnings",
+    "quarterly earnings",
+    "revenue",
+    "eps",
 )
 
 
@@ -94,6 +107,16 @@ def _to_unix(iso_str):
 
 def _date_label(ts):
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _resolve_manifest_output(path_or_dir, start_date, end_date):
+    if not path_or_dir or str(path_or_dir).strip().lower() == "auto":
+        return Path("reports") / "research" / f"matched_release_markets_{start_date}_{end_date}.jsonl"
+
+    path = Path(path_or_dir)
+    if path.suffix.lower() == ".jsonl":
+        return path
+    return path / f"matched_release_markets_{start_date}_{end_date}.jsonl"
 
 
 def _build_offset_list(args):
@@ -146,6 +169,39 @@ def _infer_release_event_window(events):
     return min(timestamps), max(timestamps)
 
 
+def _build_release_manifest_row(event, market):
+    context = market.get("geopolitical_context") or {}
+    release_context = market.get("release_context") or {}
+    return {
+        "event_id": str(event.get("id") or ""),
+        "event_slug": event.get("slug"),
+        "event_title": event.get("title") or event.get("question"),
+        "event_end_date": event.get("endDate"),
+        "event_category": event.get("category"),
+        "resolution_source": event.get("resolutionSource"),
+        "market_id": str(market.get("id") or ""),
+        "market_slug": market.get("slug"),
+        "question": market.get("question"),
+        "market_end_date": market.get("endDate") or event.get("endDate"),
+        "outcomes": market.get("outcomes"),
+        "outcome_prices": market.get("outcomePrices"),
+        "clob_token_ids": market.get("clobTokenIds"),
+        "discovery_hits": market.get("_release_discovery_hits") or [],
+        "release_score": release_context.get("release_score"),
+        "action_family": context.get("action_family"),
+        "catalyst_type": context.get("catalyst_type"),
+        "catalyst_family": context.get("catalyst_family"),
+        "catalyst_strength": context.get("catalyst_strength"),
+        "catalyst_has_official_source": context.get("catalyst_has_official_source"),
+        "question_geo_keywords": context.get("question_geo_keywords") or [],
+        "release_context_keywords": context.get("release_context_keywords") or [],
+        "release_figure_keywords": context.get("release_figure_keywords") or [],
+        "institution_keywords": context.get("institution_keywords") or [],
+        "quote_market": context.get("quote_market"),
+        "match_score": context.get("match_score"),
+    }
+
+
 def _keyword_hits(text, keywords):
     normalized = normalize_text(text)
     hits = []
@@ -155,17 +211,19 @@ def _keyword_hits(text, keywords):
     return hits
 
 
-def _coarse_keyword_prefilter_events(events, discovery_keywords):
+def _coarse_keyword_prefilter_events(events, discovery_keywords, exclusion_keywords):
     if not discovery_keywords:
         return events, {
             "enabled": False,
             "events_kept": len(events),
             "markets_kept": sum(len(event.get("markets") or []) for event in events if isinstance(event.get("markets"), list)),
             "top_keywords": {},
+            "top_exclusions": {},
         }
 
     filtered_events = []
     keyword_counter = Counter()
+    exclusion_counter = Counter()
     kept_markets = 0
 
     for event in events:
@@ -187,6 +245,11 @@ def _coarse_keyword_prefilter_events(events, discovery_keywords):
                 event_category,
                 resolution_source,
             )
+            exclusion_hits = _keyword_hits(market_text, exclusion_keywords)
+            if exclusion_hits:
+                for hit in exclusion_hits:
+                    exclusion_counter[hit] += 1
+                continue
             hits = _keyword_hits(market_text, discovery_keywords)
             if not hits:
                 continue
@@ -207,6 +270,7 @@ def _coarse_keyword_prefilter_events(events, discovery_keywords):
         "events_kept": len(filtered_events),
         "markets_kept": kept_markets,
         "top_keywords": dict(keyword_counter.most_common(20)),
+        "top_exclusions": dict(exclusion_counter.most_common(20)),
     }
 
 
@@ -267,6 +331,7 @@ def _is_targeted_release_candidate(context, catalyst, min_match_score, allowed_c
 
 def _filter_events_to_release(events, min_match_score, allowed_catalyst_types):
     filtered_events = []
+    manifest_rows = []
     kept_markets = 0
     scanned_markets = 0
     action_counter = Counter()
@@ -311,6 +376,7 @@ def _filter_events_to_release(events, min_match_score, allowed_catalyst_types):
                 "catalyst_family": catalyst.get("catalyst_family"),
             }
             kept.append(enriched)
+            manifest_rows.append(_build_release_manifest_row(event, enriched))
             kept_markets += 1
             action_counter[str(context.get("action_family") or "generic_release")] += 1
             catalyst_counter[str(catalyst.get("catalyst_type") or "generic")] += 1
@@ -324,7 +390,7 @@ def _filter_events_to_release(events, min_match_score, allowed_catalyst_types):
             cloned["markets"] = kept
             filtered_events.append(cloned)
 
-    return filtered_events, {
+    return filtered_events, manifest_rows, {
         "events_with_release_markets": len(filtered_events),
         "markets_scanned": scanned_markets,
         "markets_kept": kept_markets,
@@ -364,11 +430,17 @@ def parse_args():
         help="Comma-separated coarse keywords used before full release matching. Use 'any' to disable.",
     )
     parser.add_argument(
+        "--discovery-exclusion-keywords",
+        default=",".join(_DEFAULT_DISCOVERY_EXCLUSION_KEYWORDS),
+        help="Comma-separated coarse exclusion keywords applied before full release matching. Use 'any' to disable.",
+    )
+    parser.add_argument(
         "--align-window-to-discovered-events",
         action="store_true",
         help="Use the min/max endDate of discovered release events instead of the requested date window.",
     )
     parser.add_argument("--dataset-output", required=True, help="JSONL file or directory for the snapshot pool.")
+    parser.add_argument("--manifest-output", default="auto", help="JSONL file or directory for matched raw release markets.")
     parser.add_argument("--summary-output", default=None, help="Optional JSON summary path.")
     parser.add_argument("--use-liquidity-filter", action="store_true")
     return parser.parse_args()
@@ -380,6 +452,7 @@ def main():
     end_ts = _parse_date_to_ts(args.end_date) + (24 * 3600) - 1
     allowed_catalyst_types = _parse_csv_set(args.allowed_catalyst_types)
     discovery_keywords = _parse_csv_list(args.discovery_keywords)
+    discovery_exclusion_keywords = _parse_csv_list(args.discovery_exclusion_keywords)
 
     offset_list = _build_offset_list(args)
     if offset_list:
@@ -404,11 +477,15 @@ def main():
         fetched_meta = [{"offset": start_offset, "event_count": len(events)}]
     print(f"Fetched events: {len(events)}")
 
-    coarse_events, coarse_summary = _coarse_keyword_prefilter_events(events, discovery_keywords)
+    coarse_events, coarse_summary = _coarse_keyword_prefilter_events(
+        events,
+        discovery_keywords,
+        discovery_exclusion_keywords,
+    )
     print(f"Coarse keyword-prefilter events kept: {coarse_summary['events_kept']}")
     print(f"Coarse keyword-prefilter markets kept: {coarse_summary['markets_kept']}")
 
-    release_events, filter_summary = _filter_events_to_release(
+    release_events, manifest_rows, filter_summary = _filter_events_to_release(
         events=coarse_events,
         min_match_score=args.min_match_score,
         allowed_catalyst_types=allowed_catalyst_types,
@@ -447,6 +524,11 @@ def main():
     print(f"Release snapshot pool written: {dataset_path}")
     print(f"Dataset rows: {len(dataset_rows)} | Final candidates: {len(candidates)}")
 
+    manifest_path = _resolve_manifest_output(args.manifest_output, output_start_date, output_end_date)
+    write_jsonl(manifest_rows, manifest_path)
+    print(f"Release matched-manifest written: {manifest_path}")
+    print(f"Matched release markets: {len(manifest_rows)}")
+
     summary = {
         "period": {"start_date": args.start_date, "end_date": args.end_date},
         "applied_period": {
@@ -470,18 +552,22 @@ def main():
             "min_match_score": args.min_match_score,
             "allowed_catalyst_types": sorted(allowed_catalyst_types),
             "discovery_keywords": discovery_keywords,
+            "discovery_exclusion_keywords": discovery_exclusion_keywords,
             "align_window_to_discovered_events": args.align_window_to_discovered_events,
             "use_liquidity_filter": args.use_liquidity_filter,
         },
         "coarse_prefilter": coarse_summary,
         "filter_summary": filter_summary,
         "fetch_summary": fetched_meta,
+        "manifest_row_count": len(manifest_rows),
+        "manifest_output": str(manifest_path),
         "dataset_row_count": len(dataset_rows),
         "final_candidate_count": len(candidates),
         "rejects": rejects,
         "drop_reasons": reasons,
         "diagnostics": diagnostics,
         "top_questions": [row.get("question") for row in dataset_rows[:15]],
+        "top_manifest_questions": [row.get("question") for row in manifest_rows[:15]],
         "dataset_output": str(dataset_path),
     }
 
