@@ -148,6 +148,14 @@ def _distribution(values):
     }
 
 
+def _has_real_forward_history(row):
+    return str(row.get("history_source") or "") in {"api_only", "api_plus_settlement"}
+
+
+def _uses_settlement_fallback(row):
+    return str(row.get("history_source") or "") == "settlement_only"
+
+
 def _rate(rows, predicate):
     if not rows:
         return None
@@ -613,11 +621,19 @@ def analyze_repricing(rows, args):
 
 def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices):
     executed_rows = [row for row in rows if row.get("repricing_tradeable")]
+    real_forward_rows = [row for row in rows if _has_real_forward_history(row)]
+    settlement_fallback_rows = [row for row in rows if _uses_settlement_fallback(row)]
     summary = {
         "count": len(rows),
         "tradeable_count": len(executed_rows),
         "tradeable_rate": (len(executed_rows) / len(rows)) if rows else None,
         "best_runup_pct": _distribution([row.get("best_runup_pct") for row in rows]),
+        "history_quality": {
+            "real_forward_history_count": len(real_forward_rows),
+            "real_forward_history_rate": (len(real_forward_rows) / len(rows)) if rows else None,
+            "settlement_fallback_count": len(settlement_fallback_rows),
+            "settlement_fallback_rate": (len(settlement_fallback_rows) / len(rows)) if rows else None,
+        },
         "history_source_rates": {
             "api_only": _rate(rows, lambda row: row.get("history_source") == "api_only"),
             "api_plus_settlement": _rate(rows, lambda row: row.get("history_source") == "api_plus_settlement"),
@@ -728,6 +744,8 @@ def _release_catalyst_leaderboard(
                 "count": len(items),
                 "tradeable_count": summary.get("tradeable_count"),
                 "tradeable_rate": summary.get("tradeable_rate"),
+                "real_forward_history_count": ((summary.get("history_quality") or {}).get("real_forward_history_count")),
+                "settlement_fallback_count": ((summary.get("history_quality") or {}).get("settlement_fallback_count")),
                 "mean_best_runup_pct": (summary.get("best_runup_pct") or {}).get("mean"),
                 "mean_3d_runup_pct": (window_summary.get("runup_pct") or {}).get("mean"),
                 "tp25_3d": (window_summary.get("label_rates") or {}).get("repriced_25pct"),
@@ -818,6 +836,22 @@ def main():
     print(f"Rows with forward repricing history: {len(analyses_ok)}")
 
     overall = _summarize_group(analyses_ok, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
+    overall_real_forward_history = _summarize_group(
+        [row for row in analyses_ok if _has_real_forward_history(row)],
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+    )
+    overall_settlement_fallback = _summarize_group(
+        [row for row in analyses_ok if _uses_settlement_fallback(row)],
+        windows_days,
+        take_profit_levels,
+        target_prices,
+        conflict_runup_levels,
+        conflict_target_prices,
+    )
     by_market_type_summary = {
         key: _summarize_group(value, windows_days, take_profit_levels, target_prices, conflict_runup_levels, conflict_target_prices)
         for key, value in sorted(by_market_type.items())
@@ -878,6 +912,8 @@ def main():
         "conflict_runup_levels": conflict_runup_levels,
         "conflict_target_prices": conflict_target_prices,
         "overall": overall,
+        "overall_real_forward_history": overall_real_forward_history,
+        "overall_settlement_fallback": overall_settlement_fallback,
         "by_market_type": by_market_type_summary,
         "by_domain_name": by_domain_name_summary,
         "by_action_family": by_action_family_summary,
@@ -890,6 +926,11 @@ def main():
 
     print("\n=== Repricing Summary ===")
     print(f"Overall analyzed rows: {summary['analyzed_row_count']}")
+    print(
+        "History quality: "
+        f"real_forward={overall['history_quality']['real_forward_history_count']} "
+        f"settlement_fallback={overall['history_quality']['settlement_fallback_count']}"
+    )
     for window in windows_days:
         key = f"{window}d"
         window_summary = overall["windows"][key]
@@ -915,7 +956,9 @@ def main():
             print(
                 f"- catalyst={item.get('catalyst_type')} count={item.get('count')} "
                 f"runup3d={item.get('mean_3d_runup_pct')} tp25={item.get('tp25_3d')} "
-                f"tradeable={item.get('tradeable_count')}"
+                f"tradeable={item.get('tradeable_count')} "
+                f"real_forward={item.get('real_forward_history_count')} "
+                f"fallback={item.get('settlement_fallback_count')}"
             )
 
     json_output = Path(args.json_output) if args.json_output else _default_json_output(args.start_date, args.end_date)
