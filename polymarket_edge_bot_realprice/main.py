@@ -611,6 +611,41 @@ def _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates):
     return conflict_rows[:MAX_CONFLICT_LEADERBOARD]
 
 
+def _build_legal_catalyst_leaders(value_bets, watchlist, rejected_candidates):
+    legal_rows = []
+    seen = set()
+    legal_catalysts = {"hearing", "court_ruling", "appeal"}
+    for source_name, rows in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in rows:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            if str(row.get("domain_action_family") or "") != "release":
+                continue
+            if str(row.get("catalyst_type") or "") not in legal_catalysts:
+                continue
+            verdict = str(row.get("repricing_verdict") or "")
+            if verdict not in {"buy_now", "watch", "watch_high_upside", "watch_late"}:
+                continue
+            item = dict(row)
+            item["radar_source"] = source_name
+            legal_rows.append(item)
+            seen.add(link)
+    legal_rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_release_legitimacy_score") or 0.0),
+            -(x.get("repricing_release_subject_score") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return legal_rows[:MAX_LEGAL_CATALYST_LEADERS]
+
+
 def _build_release_watchlist(value_bets, watchlist, rejected_candidates):
     release_rows = []
     seen = set()
@@ -922,9 +957,19 @@ def run():
     geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
     conflict_leaderboard = _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates)
     conflict_links = {candidate.get("link") for candidate in conflict_leaderboard if candidate.get("link")}
-    release_buy_now = _build_release_buy_now(value_bets, watchlist, rejected_candidates)
+    legal_catalyst_leaders = _build_legal_catalyst_leaders(value_bets, watchlist, rejected_candidates)
+    legal_links = {candidate.get("link") for candidate in legal_catalyst_leaders if candidate.get("link")}
+    release_buy_now = [
+        candidate
+        for candidate in _build_release_buy_now(value_bets, watchlist, rejected_candidates)
+        if candidate.get("link") not in legal_links
+    ]
     release_buy_links = {candidate.get("link") for candidate in release_buy_now if candidate.get("link")}
-    release_watchlist = _build_release_watchlist(value_bets, watchlist, rejected_candidates)
+    release_watchlist = [
+        candidate
+        for candidate in _build_release_watchlist(value_bets, watchlist, rejected_candidates)
+        if candidate.get("link") not in legal_links
+    ]
     release_links = {candidate.get("link") for candidate in release_watchlist if candidate.get("link")}
     high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
     high_upside_links = {candidate.get("link") for candidate in high_upside_watchlist if candidate.get("link")}
@@ -933,12 +978,18 @@ def run():
         for candidate in geopolitical_radar
         if candidate.get("link") not in high_upside_links
         and candidate.get("link") not in conflict_links
+        and candidate.get("link") not in legal_links
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
     ]
     conflict_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(conflict_leaderboard))
         if conflict_leaderboard
+        else "none"
+    )
+    legal_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(legal_catalyst_leaders))
+        if legal_catalyst_leaders
         else "none"
     )
     release_buy_text = (
@@ -979,6 +1030,10 @@ Conflict Repricing Leaders
 
 {conflict_text}
 
+Legal Catalyst Leaders
+
+{legal_text}
+
 Release Buy Now
 
 {release_buy_text}
@@ -1012,6 +1067,7 @@ Geopolitical Repricing Radar
         "orderbook_coverage": coverage["book_available"],
         "value_bets": value_bets,
         "conflict_leaderboard": conflict_leaderboard,
+        "legal_catalyst_leaders": legal_catalyst_leaders,
         "release_buy_now": release_buy_now,
         "release_watchlist": release_watchlist,
         "high_upside_watchlist": high_upside_watchlist,
@@ -1030,6 +1086,7 @@ Geopolitical Repricing Radar
             "max_diagnostic_candidates": MAX_DIAGNOSTIC_CANDIDATES,
             "max_geopolitical_radar": MAX_GEOPOLITICAL_RADAR,
             "max_conflict_leaderboard": MAX_CONFLICT_LEADERBOARD,
+            "max_legal_catalyst_leaders": MAX_LEGAL_CATALYST_LEADERS,
             "max_release_buy_now": MAX_RELEASE_BUY_NOW,
             "max_release_watchlist": MAX_RELEASE_WATCHLIST,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
