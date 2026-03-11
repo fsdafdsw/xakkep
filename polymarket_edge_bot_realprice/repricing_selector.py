@@ -3,6 +3,9 @@ from config import (
     CONFLICT_MIN_SETUP_SCORE,
     CONFLICT_MIN_URGENCY_SCORE,
     CONFLICT_REPRICING_BUY_SCORE,
+    DIPLOMACY_CALL_HIGH_UPSIDE_OPTIONALITY,
+    DIPLOMACY_CALL_WATCH_ONLY,
+    DIPLOMACY_CALL_WATCH_SCORE,
     DIPLOMACY_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_REPRICING_BUY_SCORE,
     MAX_SPREAD,
@@ -95,6 +98,22 @@ def _family_policy(action_family, catalyst_hardness, catalyst_type=None):
                 "require_official_source_for_buy": True,
             }
         )
+        if catalyst_type == "call_or_meeting":
+            policy.update(
+                {
+                    "watch_threshold": DIPLOMACY_CALL_WATCH_SCORE,
+                    "min_underreaction": 0.54,
+                    "min_fresh": 0.72,
+                    "max_chase": 0.10,
+                    "max_already_priced": 0.24,
+                    "high_upside_optionality": DIPLOMACY_CALL_HIGH_UPSIDE_OPTIONALITY,
+                    "high_upside_max_chase": 0.14,
+                    "high_upside_max_already_priced": 0.28,
+                    "allow_buy_now": not DIPLOMACY_CALL_WATCH_ONLY,
+                    "require_hard_for_buy": False,
+                    "require_official_source_for_buy": False,
+                }
+            )
     elif action_family == "release":
         policy.update(
             {
@@ -405,11 +424,18 @@ def score_repricing_signal(
             reason = "hard legal catalyst and market still underreacted"
         elif action_family == "release" and catalyst_type == "hostage_release":
             reason = "credible hostage-release setup with room left in pricing"
+        elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
+            reason = "meeting setup looks credible and market still underreacted"
         else:
             reason = "fresh catalyst and market still underreacted"
     elif buy_ready and not family_policy["allow_buy_now"]:
         verdict = "watch"
-        reason = "credible hostage-release setup, but this family stays watch-only"
+        if action_family == "release" and catalyst_type == "hostage_release":
+            reason = "credible hostage-release setup, but this family stays watch-only"
+        elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
+            reason = "meeting setup looks live, but this family stays watch-only"
+        else:
+            reason = "setup looks live, but this family stays watch-only"
     elif watch_score >= family_policy["watch_threshold"]:
         if (
             family_policy["allow_high_upside"]
@@ -426,11 +452,16 @@ def score_repricing_signal(
             or already_priced_penalty > family_policy["max_already_priced"]
         ):
             verdict = "watch_late"
-            reason = "strong catalyst, but recent move suggests part of repricing is gone"
+            if action_family == "diplomacy" and catalyst_type == "call_or_meeting":
+                reason = "meeting theme looks live, but part of the move may already be gone"
+            else:
+                reason = "strong catalyst, but recent move suggests part of repricing is gone"
         elif verdict != "watch_high_upside":
             verdict = "watch"
             if action_family == "release" and catalyst_type == "hostage_release":
                 reason = "credible hostage-release setup, but waiting for confirmation"
+            elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
+                reason = "meeting theme is interesting, but still needs confirmation"
             else:
                 reason = "strong catalyst, but waiting for cleaner entry or confirmation"
     elif trend_chase_penalty >= 0.32:
