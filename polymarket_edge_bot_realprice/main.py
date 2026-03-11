@@ -537,11 +537,11 @@ def _radar_reason(candidate):
                     return "possible meeting setup is forming, but it is still early and not confirmed"
             if catalyst_type == "call_or_meeting" and meeting_subtype == "resume_talks":
                 if verdict == "watch_high_upside":
-                    return "talks-resume theme has upside, but confirmation is still missing"
+                    return "restart-of-talks setup has strong upside if formal talks really resume"
                 if verdict == "watch_late":
-                    return "talks-resume theme is live, but part of the move may be gone"
+                    return "restart-of-talks setup is live, but much of the move may already be behind it"
                 if verdict == "watch":
-                    return "talks-resume theme is interesting, but not confirmed yet"
+                    return "possible restart-of-talks setup, but it still needs firmer confirmation"
             if verdict == "watch_high_upside":
                 return "talks theme has upside, but the catalyst is still soft"
             if verdict == "watch_late":
