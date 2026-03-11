@@ -632,6 +632,66 @@ def _summarize_group(rows, windows_days, take_profit_levels, target_prices, conf
     return summary
 
 
+def _release_catalyst_leaderboard(rows, windows_days, limit=5):
+    release_rows = [row for row in rows if str(row.get("domain_action_family") or "") == "release"]
+    if not release_rows:
+        return []
+
+    grouped = defaultdict(list)
+    for row in release_rows:
+        grouped[str(row.get("catalyst_type") or "unknown")].append(row)
+
+    window_key = f"{windows_days[0]}d" if windows_days else "3d"
+    leaderboard = []
+    for catalyst_type, items in sorted(grouped.items()):
+        summary = _summarize_group(items, windows_days, [], [], [], [])
+        window_summary = (summary.get("windows") or {}).get(window_key) or {}
+        top_rows = sorted(
+            items,
+            key=lambda row: (
+                row.get("best_runup_pct") if row.get("best_runup_pct") is not None else float("-inf"),
+                row.get("repricing_score") or 0.0,
+                row.get("confidence") or 0.0,
+            ),
+            reverse=True,
+        )[:limit]
+        leaderboard.append(
+            {
+                "catalyst_type": catalyst_type,
+                "count": len(items),
+                "tradeable_count": summary.get("tradeable_count"),
+                "tradeable_rate": summary.get("tradeable_rate"),
+                "mean_best_runup_pct": (summary.get("best_runup_pct") or {}).get("mean"),
+                "mean_3d_runup_pct": (window_summary.get("runup_pct") or {}).get("mean"),
+                "tp25_3d": (window_summary.get("label_rates") or {}).get("repriced_25pct"),
+                "tp50_3d": (window_summary.get("label_rates") or {}).get("repriced_50pct"),
+                "mean_release_subject_score": ((summary.get("repricing_features") or {}).get("release_subject_score") or {}).get("mean"),
+                "mean_release_legitimacy_score": ((summary.get("repricing_features") or {}).get("release_legitimacy_score") or {}).get("mean"),
+                "top_cases": [
+                    {
+                        "question": row.get("question"),
+                        "repricing_verdict": row.get("repricing_verdict"),
+                        "best_runup_pct": row.get("best_runup_pct"),
+                        "repricing_score": row.get("repricing_score"),
+                        "release_subject_score": row.get("repricing_release_subject_score"),
+                        "release_legitimacy_score": row.get("repricing_release_legitimacy_score"),
+                    }
+                    for row in top_rows
+                ],
+            }
+        )
+
+    leaderboard.sort(
+        key=lambda item: (
+            item.get("mean_3d_runup_pct") if item.get("mean_3d_runup_pct") is not None else float("-inf"),
+            item.get("tp25_3d") if item.get("tp25_3d") is not None else float("-inf"),
+            item.get("mean_best_runup_pct") if item.get("mean_best_runup_pct") is not None else float("-inf"),
+        ),
+        reverse=True,
+    )
+    return leaderboard
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Backtest repricing potential after a model signal.")
     parser.add_argument("--start-date", default="2026-01-01", help="UTC date, e.g. 2026-01-01")
@@ -721,6 +781,7 @@ def main():
         ),
         reverse=True,
     )[: args.top_limit]
+    release_catalyst_leaderboard = _release_catalyst_leaderboard(analyses_ok, windows_days, limit=args.top_limit)
 
     summary = {
         "dataset_source": source_meta,
@@ -746,6 +807,7 @@ def main():
         "by_action_family": by_action_family_summary,
         "by_catalyst_type": by_catalyst_type_summary,
         "by_repricing_verdict": by_repricing_verdict_summary,
+        "release_catalyst_leaderboard": release_catalyst_leaderboard,
         "top_repricing": top_repricing,
         "errors": [row for row in analyses if row.get("error")],
     }
@@ -769,6 +831,15 @@ def main():
                 f"score={item.get('repricing_score')} conf={item.get('confidence')} "
                 f"action={item.get('domain_action_family')} catalyst={item.get('catalyst_type')}\n"
                 f"  {item.get('question')}"
+            )
+
+    if release_catalyst_leaderboard:
+        print("\nRelease catalyst leaderboard:")
+        for item in release_catalyst_leaderboard[:5]:
+            print(
+                f"- catalyst={item.get('catalyst_type')} count={item.get('count')} "
+                f"runup3d={item.get('mean_3d_runup_pct')} tp25={item.get('tp25_3d')} "
+                f"tradeable={item.get('tradeable_count')}"
             )
 
     json_output = Path(args.json_output) if args.json_output else _default_json_output(args.start_date, args.end_date)
