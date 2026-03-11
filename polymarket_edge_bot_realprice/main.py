@@ -257,6 +257,8 @@ def _build_candidate(item, score_policy):
         "repricing_fresh_catalyst_score": None,
         "repricing_trend_chase_penalty": None,
         "repricing_optionality_score": None,
+        "repricing_conflict_setup_score": None,
+        "repricing_conflict_urgency_score": None,
         "repricing_recent_runup": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
@@ -340,6 +342,8 @@ def _build_candidate(item, score_policy):
     candidate["repricing_fresh_catalyst_score"] = repricing.get("fresh_catalyst_score")
     candidate["repricing_trend_chase_penalty"] = repricing.get("trend_chase_penalty")
     candidate["repricing_optionality_score"] = repricing.get("optionality_score")
+    candidate["repricing_conflict_setup_score"] = repricing.get("conflict_setup_score")
+    candidate["repricing_conflict_urgency_score"] = repricing.get("conflict_urgency_score")
     candidate["repricing_recent_runup"] = repricing.get("recent_runup")
     candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
     candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")

@@ -1,4 +1,7 @@
 from config import (
+    CONFLICT_FAST_LANE_BONUS,
+    CONFLICT_MIN_SETUP_SCORE,
+    CONFLICT_MIN_URGENCY_SCORE,
     CONFLICT_REPRICING_BUY_SCORE,
     DIPLOMACY_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_REPRICING_BUY_SCORE,
@@ -44,6 +47,9 @@ def _family_policy(action_family, catalyst_hardness):
         "allow_high_upside": True,
         "require_hard_for_buy": False,
         "require_official_source_for_buy": False,
+        "min_setup_score": 0.0,
+        "min_urgency_score": 0.0,
+        "family_bonus": 0.0,
     }
 
     if action_family == "conflict":
@@ -55,6 +61,9 @@ def _family_policy(action_family, catalyst_hardness):
                 "max_chase": 0.10,
                 "max_already_priced": 0.24,
                 "allow_high_upside": False,
+                "min_setup_score": CONFLICT_MIN_SETUP_SCORE,
+                "min_urgency_score": CONFLICT_MIN_URGENCY_SCORE,
+                "family_bonus": CONFLICT_FAST_LANE_BONUS,
             }
         )
     elif action_family == "diplomacy":
@@ -177,6 +186,8 @@ def score_repricing_signal(
     underreaction_score = repricing_context["underreaction_score"]
     fresh_catalyst_score = repricing_context["fresh_catalyst_score"]
     trend_chase_penalty = repricing_context["trend_chase_penalty"]
+    compression_score = repricing_context["compression_score"]
+    deadline_pressure = repricing_context["deadline_pressure"]
     spread_penalty = _clamp(max(0.0, spread - min(MAX_SPREAD, 0.05)) * 6.0)
     liquidity_penalty = _clamp(max(0.0, (250.0 - liquidity) / 250.0) * 0.25)
     volume_penalty = _clamp(max(0.0, (200.0 - volume24h) / 200.0) * 0.18)
@@ -226,13 +237,46 @@ def score_repricing_signal(
     )
     score = _clamp(score)
     watch_score = _clamp(watch_score)
-    family_policy = _family_policy(components.get("action_family"), catalyst_hardness)
+    action_family = components.get("action_family")
+    family_policy = _family_policy(action_family, catalyst_hardness)
+    conflict_setup_score = 0.0
+    conflict_urgency_score = 0.0
+    if action_family == "conflict":
+        conflict_setup_score = _clamp(
+            (underreaction_score * 0.32)
+            + (attention_gap * 0.20)
+            + (fresh_catalyst_score * 0.18)
+            + (stale_score * 0.12)
+            + (confidence * 0.10)
+            + (domain_confidence * 0.08)
+        )
+        conflict_urgency_score = _clamp(
+            (deadline_pressure * 0.34)
+            + (compression_score * 0.18)
+            + (_clamp(1.0 - trend_chase_penalty) * 0.18)
+            + (_clamp(1.0 - already_priced_penalty) * 0.18)
+            + (_clamp(1.0 - entry_price / max(MAX_REPRICING_BUY_PRICE, 0.01)) * 0.12)
+        )
+        score = _clamp(
+            score
+            + (conflict_setup_score * 0.08)
+            + (conflict_urgency_score * 0.07)
+            + family_policy["family_bonus"]
+        )
+        watch_score = _clamp(
+            watch_score
+            + (conflict_setup_score * 0.05)
+            + (conflict_urgency_score * 0.04)
+            + (family_policy["family_bonus"] * 0.5)
+        )
     clean_entry = (
         entry_price <= MAX_REPRICING_BUY_PRICE
         and underreaction_score >= family_policy["min_underreaction"]
         and fresh_catalyst_score >= family_policy["min_fresh"]
         and trend_chase_penalty <= family_policy["max_chase"]
         and already_priced_penalty <= family_policy["max_already_priced"]
+        and conflict_setup_score >= family_policy["min_setup_score"]
+        and conflict_urgency_score >= family_policy["min_urgency_score"]
         and (
             not family_policy["require_hard_for_buy"]
             or catalyst_hardness == "hard"
@@ -293,9 +337,11 @@ def score_repricing_signal(
         "deadline_pressure": repricing_context["deadline_pressure"],
         "book_quality": repricing_context["book_quality"],
         "family_policy": family_policy,
+        "conflict_setup_score": conflict_setup_score,
+        "conflict_urgency_score": conflict_urgency_score,
         "catalyst_type": catalyst_type,
         "catalyst_strength": catalyst_strength,
-        "action_family": components.get("action_family"),
+        "action_family": action_family,
         "hardness": catalyst_hardness,
         "reversibility": catalyst_reversibility,
         "has_official_source": catalyst_has_official_source,
