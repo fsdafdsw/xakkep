@@ -523,11 +523,11 @@ def _radar_reason(candidate):
             meeting_subtype = str(candidate.get("meeting_subtype") or "")
             if catalyst_type == "call_or_meeting" and meeting_subtype == "talk_call":
                 if verdict == "watch_high_upside":
-                    return "talk-or-call theme has upside, but confirmation is still missing"
+                    return "high-level contact setup has strong upside if the call is confirmed"
                 if verdict == "watch_late":
-                    return "talk-or-call theme is live, but part of the move may be gone"
+                    return "high-level contact setup is live, but much of the move may already be gone"
                 if verdict == "watch":
-                    return "talk-or-call theme is interesting, but not confirmed yet"
+                    return "possible high-level call setup, but it still needs confirmation"
             if catalyst_type == "call_or_meeting" and meeting_subtype == "resume_talks":
                 if verdict == "watch_high_upside":
                     return "talks-resume theme has upside, but confirmation is still missing"
