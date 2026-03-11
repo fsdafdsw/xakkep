@@ -576,6 +576,36 @@ def _build_high_upside_watchlist(geopolitical_radar):
     return high_upside[:MAX_HIGH_UPSIDE_WATCHLIST]
 
 
+def _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates):
+    conflict_rows = []
+    seen = set()
+    for source_name, rows in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in rows:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            if str(row.get("domain_action_family") or "") != "conflict":
+                continue
+            item = dict(row)
+            item["radar_source"] = source_name
+            conflict_rows.append(item)
+            seen.add(link)
+    conflict_rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_conflict_setup_score") or 0.0),
+            -(x.get("repricing_conflict_urgency_score") or 0.0),
+            -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return conflict_rows[:MAX_CONFLICT_LEADERBOARD]
+
+
 def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
     verdict = _radar_verdict(candidate)
@@ -821,9 +851,21 @@ def run():
     displayed_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
     displayed_links.update(candidate.get("link") for candidate in near_candidates if candidate.get("link"))
     geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
+    conflict_leaderboard = _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates)
+    conflict_links = {candidate.get("link") for candidate in conflict_leaderboard if candidate.get("link")}
     high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
     high_upside_links = {candidate.get("link") for candidate in high_upside_watchlist if candidate.get("link")}
-    geopolitical_radar_core = [candidate for candidate in geopolitical_radar if candidate.get("link") not in high_upside_links]
+    geopolitical_radar_core = [
+        candidate
+        for candidate in geopolitical_radar
+        if candidate.get("link") not in high_upside_links
+        and candidate.get("link") not in conflict_links
+    ]
+    conflict_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(conflict_leaderboard))
+        if conflict_leaderboard
+        else "none"
+    )
     high_upside_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(high_upside_watchlist))
         if high_upside_watchlist
@@ -847,6 +889,10 @@ Price coverage: {coverage['price_available']}/{len(markets)} | Orderbook coverag
 Top recommendations
 
 {signals}
+
+Conflict Repricing Leaders
+
+{conflict_text}
 
 High-Upside Watchlist
 
@@ -872,6 +918,7 @@ Geopolitical Repricing Radar
         "price_coverage": coverage["price_available"],
         "orderbook_coverage": coverage["book_available"],
         "value_bets": value_bets,
+        "conflict_leaderboard": conflict_leaderboard,
         "high_upside_watchlist": high_upside_watchlist,
         "geopolitical_radar": geopolitical_radar_core,
         "near_misses": near_candidates,
@@ -887,6 +934,7 @@ Geopolitical Repricing Radar
             "live_use_research_gates": LIVE_USE_RESEARCH_GATES,
             "max_diagnostic_candidates": MAX_DIAGNOSTIC_CANDIDATES,
             "max_geopolitical_radar": MAX_GEOPOLITICAL_RADAR,
+            "max_conflict_leaderboard": MAX_CONFLICT_LEADERBOARD,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
             "use_meta_model_selector": USE_META_MODEL_SELECTOR,
             "min_meta_trade_prob": MIN_META_TRADE_PROB,
