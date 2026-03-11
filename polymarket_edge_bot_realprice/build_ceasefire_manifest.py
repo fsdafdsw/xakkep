@@ -87,7 +87,10 @@ def _research_action(snapshot_row, repricing_row):
             return "skip_weak_snapshot"
         return "run_repricing_backtest"
     history_quality = _history_quality(repricing_row)
+    repricing_verdict = str(repricing_row.get("repricing_verdict") or "")
     if history_quality == "real_forward":
+        if repricing_verdict == "ignore":
+            return "keep_negative_control"
         return "ready_for_selector_tuning"
     if history_quality == "settlement_fallback":
         return "needs_alt_history_source"
@@ -228,7 +231,7 @@ def _summary(rows, top_limit):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build a ceasefire-first research manifest from diplomacy discovery outputs.")
+    parser = argparse.ArgumentParser(description="Build a diplomacy-catalyst research manifest from discovery, snapshot, and repricing outputs.")
     parser.add_argument("--manifest-input", required=True)
     parser.add_argument("--snapshot-input", default="")
     parser.add_argument("--repricing-input", default="")
