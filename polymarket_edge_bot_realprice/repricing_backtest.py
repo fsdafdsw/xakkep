@@ -519,6 +519,7 @@ def analyze_repricing(rows, args):
                 entry_price=entry_price,
                 action_family=action_family,
                 repricing_verdict=repricing_verdict,
+                catalyst_type=row.get("catalyst_type"),
             )
             if execute_trade
             else {}

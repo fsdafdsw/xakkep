@@ -389,6 +389,7 @@ def _suggested_exit_line(candidate):
         candidate.get("domain_action_family"),
         repricing_verdict=candidate.get("repricing_verdict"),
         entry_price=entry_price,
+        catalyst_type=candidate.get("catalyst_type"),
     )
     take_profit = plan.get("take_profit_price")
     stop_loss = plan.get("stop_loss_price")

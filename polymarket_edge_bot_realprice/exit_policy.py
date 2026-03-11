@@ -2,6 +2,10 @@ def _clamp(value, low=0.01, high=0.99):
     return max(low, min(high, value))
 
 
+def _clamp_price(value, low=0.0, high=0.99):
+    return max(low, min(high, value))
+
+
 def _safe_float(value, default=0.0):
     try:
         if value is None or value == "":
@@ -11,13 +15,15 @@ def _safe_float(value, default=0.0):
         return default
 
 
-def _policy_for(action_family, repricing_verdict=None):
+def _policy_for(action_family, repricing_verdict=None, catalyst_type=None):
     action_family = str(action_family or "generic")
     repricing_verdict = str(repricing_verdict or "")
+    catalyst_type = str(catalyst_type or "")
     policy = {
         "name": "generic_repricing",
         "take_profit_pct": 0.35,
         "take_profit_floor": 0.18,
+        "take_profit_abs_min": 0.0,
         "stop_loss_pct": 0.18,
         "time_stop_days": 7.0,
         "trailing_arm_pct": 0.18,
@@ -31,6 +37,7 @@ def _policy_for(action_family, repricing_verdict=None):
                 "name": "conflict_fast",
                 "take_profit_pct": 0.55,
                 "take_profit_floor": 0.10,
+                "take_profit_abs_min": 0.0,
                 "stop_loss_pct": 0.20,
                 "time_stop_days": 3.0,
                 "trailing_arm_pct": 0.25,
@@ -44,6 +51,7 @@ def _policy_for(action_family, repricing_verdict=None):
                 "name": "diplomacy_patience",
                 "take_profit_pct": 0.45,
                 "take_profit_floor": 0.18,
+                "take_profit_abs_min": 0.0,
                 "stop_loss_pct": 0.28,
                 "time_stop_days": 7.0 if repricing_verdict == "buy_now" else 10.0,
                 "trailing_arm_pct": 0.22,
@@ -57,6 +65,7 @@ def _policy_for(action_family, repricing_verdict=None):
                 "name": "release_event",
                 "take_profit_pct": 0.40,
                 "take_profit_floor": 0.25,
+                "take_profit_abs_min": 0.0,
                 "stop_loss_pct": 0.20,
                 "time_stop_days": 8.0,
                 "trailing_arm_pct": 0.20,
@@ -64,12 +73,41 @@ def _policy_for(action_family, repricing_verdict=None):
                 "stop_activation_hours": 12.0,
             }
         )
+        if catalyst_type in {"hearing", "court_ruling", "appeal"}:
+            policy.update(
+                {
+                    "name": "release_hearing_fast",
+                    "take_profit_pct": 0.80,
+                    "take_profit_floor": 0.0,
+                    "take_profit_abs_min": 0.010,
+                    "stop_loss_pct": 0.45,
+                    "time_stop_days": 4.0,
+                    "trailing_arm_pct": 0.35,
+                    "trailing_drawdown_pct": 0.20,
+                    "stop_activation_hours": 30.0,
+                }
+            )
+        elif catalyst_type == "hostage_release":
+            policy.update(
+                {
+                    "name": "release_hostage_patience",
+                    "take_profit_pct": 0.45,
+                    "take_profit_floor": 0.18,
+                    "take_profit_abs_min": 0.0,
+                    "stop_loss_pct": 0.24,
+                    "time_stop_days": 6.0,
+                    "trailing_arm_pct": 0.22,
+                    "trailing_drawdown_pct": 0.16,
+                    "stop_activation_hours": 24.0,
+                }
+            )
     elif action_family == "regime_shift":
         policy.update(
             {
                 "name": "regime_shift_binary",
                 "take_profit_pct": 0.50,
                 "take_profit_floor": 0.30,
+                "take_profit_abs_min": 0.0,
                 "stop_loss_pct": 0.16,
                 "time_stop_days": 5.0,
                 "trailing_arm_pct": 0.24,
@@ -95,8 +133,8 @@ def _price_at_or_before(history, ts):
     return candidate
 
 
-def simulate_exit(forward_history, *, entry_ts, settle_ts, entry_price, action_family, repricing_verdict=None):
-    policy = _policy_for(action_family, repricing_verdict=repricing_verdict)
+def simulate_exit(forward_history, *, entry_ts, settle_ts, entry_price, action_family, repricing_verdict=None, catalyst_type=None):
+    policy = _policy_for(action_family, repricing_verdict=repricing_verdict, catalyst_type=catalyst_type)
     if not forward_history or entry_price is None or entry_price <= 0:
         return {
             "policy": policy,
@@ -110,9 +148,15 @@ def simulate_exit(forward_history, *, entry_ts, settle_ts, entry_price, action_f
             "holding_hours": 0.0,
         }
 
-    take_profit_price = _clamp(max(entry_price * (1.0 + policy["take_profit_pct"]), policy["take_profit_floor"]))
-    stop_loss_price = _clamp(entry_price * (1.0 - policy["stop_loss_pct"]))
-    trailing_arm_price = _clamp(entry_price * (1.0 + policy["trailing_arm_pct"]))
+    take_profit_price = _clamp_price(
+        max(
+            entry_price * (1.0 + policy["take_profit_pct"]),
+            policy["take_profit_floor"],
+            entry_price + policy.get("take_profit_abs_min", 0.0),
+        )
+    )
+    stop_loss_price = _clamp_price(entry_price * (1.0 - policy["stop_loss_pct"]))
+    trailing_arm_price = _clamp_price(entry_price * (1.0 + policy["trailing_arm_pct"]))
     time_stop_ts = min(settle_ts, int(entry_ts + (policy["time_stop_days"] * 24 * 3600)))
     stop_activation_ts = int(entry_ts + (policy["stop_activation_hours"] * 3600))
 
@@ -143,7 +187,7 @@ def simulate_exit(forward_history, *, entry_ts, settle_ts, entry_price, action_f
         if trailing_active:
             trailing_stop_price = peak_price * (1.0 - policy["trailing_drawdown_pct"])
             if price <= trailing_stop_price:
-                exit_price = _clamp(trailing_stop_price)
+                exit_price = _clamp_price(trailing_stop_price)
                 return {
                     "policy": policy,
                     "take_profit_price": take_profit_price,
@@ -200,13 +244,19 @@ def simulate_exit(forward_history, *, entry_ts, settle_ts, entry_price, action_f
     }
 
 
-def live_exit_plan(action_family, repricing_verdict=None, entry_price=None):
-    policy = _policy_for(action_family, repricing_verdict=repricing_verdict)
+def live_exit_plan(action_family, repricing_verdict=None, entry_price=None, catalyst_type=None):
+    policy = _policy_for(action_family, repricing_verdict=repricing_verdict, catalyst_type=catalyst_type)
     entry = _safe_float(entry_price, default=0.0)
     return {
         "policy_name": policy["name"],
-        "take_profit_price": _clamp(max(entry * (1.0 + policy["take_profit_pct"]), policy["take_profit_floor"])) if entry > 0 else None,
-        "stop_loss_price": _clamp(entry * (1.0 - policy["stop_loss_pct"])) if entry > 0 else None,
+        "take_profit_price": _clamp_price(
+            max(
+                entry * (1.0 + policy["take_profit_pct"]),
+                policy["take_profit_floor"],
+                entry + policy.get("take_profit_abs_min", 0.0),
+            )
+        ) if entry > 0 else None,
+        "stop_loss_price": _clamp_price(entry * (1.0 - policy["stop_loss_pct"])) if entry > 0 else None,
         "time_stop_days": policy["time_stop_days"],
         "stop_activation_hours": policy["stop_activation_hours"],
         "trailing_arm_pct": policy["trailing_arm_pct"],
