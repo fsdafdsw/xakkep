@@ -679,6 +679,47 @@ def _build_release_watchlist(value_bets, watchlist, rejected_candidates):
     return release_rows[:MAX_RELEASE_WATCHLIST]
 
 
+def _build_hostage_negotiation_watchlist(value_bets, watchlist, rejected_candidates):
+    rows = []
+    seen = set()
+    negotiation_catalysts = {"negotiation", "ceasefire", "call_or_meeting", "summit"}
+    for source_name, candidates in (
+        ("value", value_bets),
+        ("watch", watchlist),
+        ("rejected", rejected_candidates),
+    ):
+        for row in candidates:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            verdict = str(row.get("repricing_verdict") or "")
+            if verdict not in {"watch", "watch_high_upside", "watch_late"}:
+                continue
+
+            action_family = str(row.get("domain_action_family") or "")
+            catalyst_type = str(row.get("catalyst_type") or "")
+            is_hostage = action_family == "release" and catalyst_type == "hostage_release"
+            is_negotiation = action_family == "diplomacy" and catalyst_type in negotiation_catalysts
+            if not (is_hostage or is_negotiation):
+                continue
+
+            item = dict(row)
+            item["radar_source"] = source_name
+            rows.append(item)
+            seen.add(link)
+
+    rows.sort(
+        key=lambda x: (
+            -(x.get("repricing_watch_score") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_optionality_score") or 0.0),
+            -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return rows[:MAX_HOSTAGE_NEGOTIATION_WATCHLIST]
+
+
 def _build_release_buy_now(value_bets, watchlist, rejected_candidates):
     release_rows = []
     seen = set()
@@ -971,6 +1012,14 @@ def run():
         if candidate.get("link") not in legal_links
     ]
     release_links = {candidate.get("link") for candidate in release_watchlist if candidate.get("link")}
+    hostage_negotiation_watchlist = [
+        candidate
+        for candidate in _build_hostage_negotiation_watchlist(value_bets, watchlist, rejected_candidates)
+        if candidate.get("link") not in legal_links
+        and candidate.get("link") not in release_buy_links
+        and candidate.get("link") not in release_links
+    ]
+    hostage_negotiation_links = {candidate.get("link") for candidate in hostage_negotiation_watchlist if candidate.get("link")}
     high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
     high_upside_links = {candidate.get("link") for candidate in high_upside_watchlist if candidate.get("link")}
     geopolitical_radar_core = [
@@ -981,6 +1030,7 @@ def run():
         and candidate.get("link") not in legal_links
         and candidate.get("link") not in release_buy_links
         and candidate.get("link") not in release_links
+        and candidate.get("link") not in hostage_negotiation_links
     ]
     conflict_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(conflict_leaderboard))
@@ -1000,6 +1050,11 @@ def run():
     release_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(release_watchlist))
         if release_watchlist
+        else "none"
+    )
+    hostage_negotiation_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(hostage_negotiation_watchlist))
+        if hostage_negotiation_watchlist
         else "none"
     )
     high_upside_text = (
@@ -1042,6 +1097,10 @@ Release Watchlist
 
 {release_text}
 
+Hostage / Negotiation Watchlist
+
+{hostage_negotiation_text}
+
 High-Upside Watchlist
 
 {high_upside_text}
@@ -1070,6 +1129,7 @@ Geopolitical Repricing Radar
         "legal_catalyst_leaders": legal_catalyst_leaders,
         "release_buy_now": release_buy_now,
         "release_watchlist": release_watchlist,
+        "hostage_negotiation_watchlist": hostage_negotiation_watchlist,
         "high_upside_watchlist": high_upside_watchlist,
         "geopolitical_radar": geopolitical_radar_core,
         "near_misses": near_candidates,
@@ -1089,6 +1149,7 @@ Geopolitical Repricing Radar
             "max_legal_catalyst_leaders": MAX_LEGAL_CATALYST_LEADERS,
             "max_release_buy_now": MAX_RELEASE_BUY_NOW,
             "max_release_watchlist": MAX_RELEASE_WATCHLIST,
+            "max_hostage_negotiation_watchlist": MAX_HOSTAGE_NEGOTIATION_WATCHLIST,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
             "use_meta_model_selector": USE_META_MODEL_SELECTOR,
             "min_meta_trade_prob": MIN_META_TRADE_PROB,
