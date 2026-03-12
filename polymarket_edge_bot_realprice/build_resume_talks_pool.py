@@ -3,7 +3,14 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from backtest import _parse_date_to_ts, build_candidates, fetch_closed_events, find_total_closed_events
+from backtest import (
+    GAMMA_EVENTS_API,
+    _parse_date_to_ts,
+    _request_json,
+    build_candidates,
+    fetch_closed_events,
+    find_total_closed_events,
+)
 from build_diplomacy_pool import (
     _build_offset_list,
     _date_label,
@@ -73,6 +80,10 @@ def _parse_csv_list(text):
             continue
         values.append(item)
     return values
+
+
+def _parse_csv_set(text):
+    return set(_parse_csv_list(text))
 
 
 def _keyword_hits(text, keywords):
@@ -212,6 +223,51 @@ def _build_manifest_row(event, market, meeting_subtype, resume_score):
     }
 
 
+def _filter_events_to_targets(events, event_slugs, market_slugs):
+    if not event_slugs and not market_slugs:
+        return events
+
+    filtered_events = []
+    for event in events:
+        event_slug = str(event.get("slug") or "").strip().lower()
+        markets = event.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+
+        if event_slugs and event_slug in event_slugs:
+            filtered_events.append(event)
+            continue
+
+        kept = []
+        for market in markets:
+            market_slug = str(market.get("slug") or "").strip().lower()
+            if market_slugs and market_slug in market_slugs:
+                kept.append(market)
+
+        if kept:
+            cloned = dict(event)
+            cloned["markets"] = kept
+            filtered_events.append(cloned)
+
+    return filtered_events
+
+
+def _fetch_events_by_slugs(event_slugs, page_size):
+    events = []
+    fetched_meta = []
+    for slug in sorted(event_slugs):
+        url = (
+            f"{GAMMA_EVENTS_API}?"
+            f"closed=true&slug={slug}&limit={max(1, int(page_size))}"
+        )
+        batch = _request_json(url)
+        if not isinstance(batch, list):
+            batch = []
+        events.extend(batch)
+        fetched_meta.append({"slug": slug, "event_count": len(batch)})
+    return events, fetched_meta
+
+
 def _filter_events_to_resume_talks(events, min_match_score):
     filtered_events = []
     manifest_rows = []
@@ -295,6 +351,8 @@ def parse_args():
     parser.add_argument("--discovery-keywords", default=",".join(_DEFAULT_RESUME_DISCOVERY_KEYWORDS))
     parser.add_argument("--discovery-exclusion-keywords", default=",".join(_DEFAULT_DISCOVERY_EXCLUSION_KEYWORDS))
     parser.add_argument("--coarse-min-score", type=float, default=1.10)
+    parser.add_argument("--target-event-slugs", default="")
+    parser.add_argument("--target-market-slugs", default="")
     parser.add_argument("--dataset-output", required=True)
     parser.add_argument("--manifest-output", default="auto")
     parser.add_argument("--summary-output", default=None)
@@ -312,9 +370,14 @@ def main():
     end_ts = _parse_date_to_ts(args.end_date) + (24 * 3600) - 1
     discovery_keywords = _parse_csv_list(args.discovery_keywords)
     discovery_exclusion_keywords = _parse_csv_list(args.discovery_exclusion_keywords)
+    target_event_slugs = _parse_csv_set(args.target_event_slugs)
+    target_market_slugs = _parse_csv_set(args.target_market_slugs)
     offsets = _build_offset_list(args)
 
-    if offsets:
+    if target_event_slugs:
+        events, fetched_meta = _fetch_events_by_slugs(target_event_slugs, page_size=args.page_size)
+        start_offset = 0
+    elif offsets:
         events, fetched_meta = _fetch_events_for_offsets(
             offsets=offsets,
             max_events_fetch=args.max_events_fetch,
@@ -335,6 +398,8 @@ def main():
         fetched_meta = [{"offset": start_offset, "event_count": len(events)}]
 
     print(f"Fetched events: {len(events)}")
+    events = _filter_events_to_targets(events, target_event_slugs, target_market_slugs)
+    print(f"Target-filtered events: {len(events)}")
     coarse_events, coarse_summary = _coarse_keyword_prefilter_events(
         events,
         discovery_keywords,
@@ -403,6 +468,8 @@ def main():
             "discovery_keywords": discovery_keywords,
             "discovery_exclusion_keywords": discovery_exclusion_keywords,
             "coarse_min_score": args.coarse_min_score,
+            "target_event_slugs": sorted(target_event_slugs),
+            "target_market_slugs": sorted(target_market_slugs),
             "repricing_research_mode": args.repricing_research_mode,
             "align_window_to_discovered_events": args.align_window_to_discovered_events,
             "align_window_padding_days": args.align_window_padding_days,
