@@ -109,6 +109,15 @@ def _repricing_lane(action_family, catalyst_type=None, meeting_subtype=None):
     return lane_key, lane_label, lane_prior
 
 
+def repricing_lane_info(action_family, catalyst_type=None, meeting_subtype=None):
+    lane_key, lane_label, lane_prior = _repricing_lane(action_family, catalyst_type, meeting_subtype)
+    return {
+        "lane_key": lane_key,
+        "lane_label": lane_label,
+        "lane_prior": lane_prior,
+    }
+
+
 def _family_policy(action_family, catalyst_hardness, catalyst_type=None, meeting_subtype=None):
     policy = {
         "buy_threshold": MIN_REPRICING_BUY_SCORE,
