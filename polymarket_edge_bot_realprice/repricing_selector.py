@@ -1,5 +1,6 @@
 from config import (
     CONFLICT_FAST_LANE_BONUS,
+    CONFLICT_LANE_PRIOR,
     CONFLICT_MIN_SETUP_SCORE,
     CONFLICT_MIN_URGENCY_SCORE,
     CONFLICT_REPRICING_BUY_SCORE,
@@ -12,10 +13,13 @@ from config import (
     DIPLOMACY_MEETING_MAX_ENTRY_PRICE,
     DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_ATTENTION_GAP,
     DIPLOMACY_MEETING_HIGH_UPSIDE_MIN_WATCH_SCORE,
+    DIPLOMACY_MEETING_LANE_PRIOR,
     DIPLOMACY_MEETING_MIN_ATTENTION_GAP,
     DIPLOMACY_MEETING_WATCH_SCORE,
+    DIPLOMACY_RESUME_TALKS_LANE_PRIOR,
     DIPLOMACY_RESUME_TALKS_MIN_ATTENTION_GAP,
     DIPLOMACY_RESUME_TALKS_WATCH_SCORE,
+    DIPLOMACY_CEASEFIRE_LANE_PRIOR,
     DIPLOMACY_CEASEFIRE_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_CEASEFIRE_WATCH_ONLY,
     DIPLOMACY_CEASEFIRE_WATCH_SCORE,
@@ -23,13 +27,20 @@ from config import (
     DIPLOMACY_CALL_WATCH_SCORE,
     DIPLOMACY_HIGH_UPSIDE_OPTIONALITY,
     DIPLOMACY_REPRICING_BUY_SCORE,
+    DIPLOMACY_TALK_CALL_LANE_PRIOR,
     MAX_SPREAD,
     MAX_REPRICING_BUY_PRICE,
     MIN_REPRICING_BUY_SCORE,
     MIN_REPRICING_WATCH_SCORE,
+    REGIME_SHIFT_LANE_PRIOR,
+    REPRICING_LANE_PRIOR_WEIGHT,
+    REPRICING_WATCH_PRIOR_WEIGHT,
     RELEASE_FAST_LANE_BONUS,
+    RELEASE_GENERIC_LANE_PRIOR,
     RELEASE_HEARING_BUY_SCORE,
     RELEASE_HEARING_FAST_LANE_BONUS,
+    RELEASE_HEARING_LANE_PRIOR,
+    RELEASE_HOSTAGE_LANE_PRIOR,
     RELEASE_HEARING_MIN_LEGITIMACY_SCORE,
     RELEASE_HEARING_MIN_SUBJECT_SCORE,
     RELEASE_HOSTAGE_BUY_SCORE,
@@ -62,6 +73,40 @@ def _domain_components(model):
     external = (model or {}).get("external_components") or {}
     domain = external.get("domain") or {}
     return domain.get("components") or {}
+
+
+def _repricing_lane(action_family, catalyst_type=None, meeting_subtype=None):
+    lane_key = "generic_repricing"
+    lane_label = "Generic repricing"
+    lane_prior = 0.50
+
+    if action_family == "conflict":
+        return "conflict_fast", "Conflict fast lane", CONFLICT_LANE_PRIOR
+
+    if action_family == "release":
+        if catalyst_type in {"hearing", "court_ruling", "appeal"}:
+            return "release_hearing", "Release hearing lane", RELEASE_HEARING_LANE_PRIOR
+        if catalyst_type == "hostage_release":
+            return "release_hostage", "Hostage release lane", RELEASE_HOSTAGE_LANE_PRIOR
+        return "release_generic", "Release lane", RELEASE_GENERIC_LANE_PRIOR
+
+    if action_family == "diplomacy":
+        if catalyst_type == "call_or_meeting":
+            if meeting_subtype == "talk_call":
+                return "diplomacy_talk_call", "Talk / call lane", DIPLOMACY_TALK_CALL_LANE_PRIOR
+            if meeting_subtype == "meeting":
+                return "diplomacy_meeting", "Meeting lane", DIPLOMACY_MEETING_LANE_PRIOR
+            if meeting_subtype == "resume_talks":
+                return "diplomacy_resume_talks", "Resume talks lane", DIPLOMACY_RESUME_TALKS_LANE_PRIOR
+            return "diplomacy_call_generic", "Call / meeting lane", DIPLOMACY_TALK_CALL_LANE_PRIOR
+        if catalyst_type == "ceasefire":
+            return "diplomacy_ceasefire", "Ceasefire lane", DIPLOMACY_CEASEFIRE_LANE_PRIOR
+        return "diplomacy_generic", "Diplomacy lane", 0.48
+
+    if action_family == "regime_shift":
+        return "regime_shift", "Regime shift lane", REGIME_SHIFT_LANE_PRIOR
+
+    return lane_key, lane_label, lane_prior
 
 
 def _family_policy(action_family, catalyst_hardness, catalyst_type=None, meeting_subtype=None):
@@ -373,6 +418,7 @@ def score_repricing_signal(
     watch_score = _clamp(watch_score)
     action_family = components.get("action_family")
     family_policy = _family_policy(action_family, catalyst_hardness, catalyst_type, meeting_subtype)
+    lane_key, lane_label, lane_prior = _repricing_lane(action_family, catalyst_type, meeting_subtype)
     conflict_setup_score = 0.0
     conflict_urgency_score = 0.0
     release_subject_score = 0.0
@@ -450,6 +496,9 @@ def score_repricing_signal(
             + (release_legitimacy_score * 0.03)
             + (family_policy["family_bonus"] * 0.4)
         )
+    prior_delta = lane_prior - 0.50
+    score = _clamp(score + (prior_delta * REPRICING_LANE_PRIOR_WEIGHT))
+    watch_score = _clamp(watch_score + (prior_delta * REPRICING_WATCH_PRIOR_WEIGHT))
     clean_entry = (
         entry_price <= family_policy["max_entry_price"]
         and underreaction_score >= family_policy["min_underreaction"]
@@ -593,6 +642,9 @@ def score_repricing_signal(
         "meeting_subtype": meeting_subtype,
         "catalyst_strength": catalyst_strength,
         "action_family": action_family,
+        "lane_key": lane_key,
+        "lane_label": lane_label,
+        "lane_prior": lane_prior,
         "hardness": catalyst_hardness,
         "reversibility": catalyst_reversibility,
         "has_official_source": catalyst_has_official_source,

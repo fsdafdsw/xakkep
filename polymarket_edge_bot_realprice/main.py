@@ -263,6 +263,9 @@ def _build_candidate(item, score_policy):
         "repricing_release_subject_score": None,
         "repricing_release_legitimacy_score": None,
         "repricing_recent_runup": None,
+        "repricing_lane_key": None,
+        "repricing_lane_label": None,
+        "repricing_lane_prior": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -352,6 +355,9 @@ def _build_candidate(item, score_policy):
     candidate["repricing_release_subject_score"] = repricing.get("release_subject_score")
     candidate["repricing_release_legitimacy_score"] = repricing.get("release_legitimacy_score")
     candidate["repricing_recent_runup"] = repricing.get("recent_runup")
+    candidate["repricing_lane_key"] = repricing.get("lane_key")
+    candidate["repricing_lane_label"] = repricing.get("lane_label")
+    candidate["repricing_lane_prior"] = repricing.get("lane_prior")
     candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
     candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")
     return candidate
