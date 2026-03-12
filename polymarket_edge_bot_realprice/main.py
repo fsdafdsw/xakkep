@@ -896,7 +896,7 @@ def _build_resume_talks_watchlist(value_bets, watchlist, rejected_candidates):
             -(x.get("confidence") or 0.0),
         )
     )
-    return rows[:MAX_CALL_MEETING_WATCHLIST]
+    return rows[:MAX_RESUME_TALKS_WATCHLIST]
 
 
 def _build_hostage_negotiation_watchlist(value_bets, watchlist, rejected_candidates):
@@ -1339,15 +1339,6 @@ def run():
         if resume_talks_watchlist
         else "none"
     )
-    if meeting_watchlist or resume_talks_watchlist:
-        call_meeting_text = (
-            "Meeting setups\n\n"
-            f"{meeting_text}\n\n"
-            "Talks resume\n\n"
-            f"{resume_talks_text}"
-        )
-    else:
-        call_meeting_text = "none"
     hostage_negotiation_text = (
         "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(hostage_negotiation_watchlist))
         if hostage_negotiation_watchlist
@@ -1401,9 +1392,13 @@ Talk / Call Watchlist
 
 {talk_call_text}
 
-Meeting / Talks Resume Watchlist
+Meeting Watchlist
 
-{call_meeting_text}
+{meeting_text}
+
+Resume Talks Watchlist
+
+{resume_talks_text}
 
 Hostage / Negotiation Watchlist
 
@@ -1465,6 +1460,7 @@ Geopolitical Repricing Radar
             "max_ceasefire_watchlist": MAX_CEASEFIRE_WATCHLIST,
             "max_talk_call_watchlist": MAX_TALK_CALL_WATCHLIST,
             "max_call_meeting_watchlist": MAX_CALL_MEETING_WATCHLIST,
+            "max_resume_talks_watchlist": MAX_RESUME_TALKS_WATCHLIST,
             "max_hostage_negotiation_watchlist": MAX_HOSTAGE_NEGOTIATION_WATCHLIST,
             "min_geopolitical_repricing": MIN_GEOPOLITICAL_REPRICING,
             "use_meta_model_selector": USE_META_MODEL_SELECTOR,
