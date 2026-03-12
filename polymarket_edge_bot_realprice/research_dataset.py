@@ -120,6 +120,7 @@ def build_snapshot_row(candidate, decision, context):
         "repricing_lane_key": repricing.get("lane_key"),
         "repricing_lane_label": repricing.get("lane_label"),
         "repricing_lane_prior": repricing.get("lane_prior"),
+        "repricing_size_multiplier": getattr(candidate, "repricing_size_multiplier", None),
         "repricing_attention_gap": repricing.get("attention_gap"),
         "repricing_stale_score": repricing.get("stale_score"),
         "repricing_already_priced_penalty": repricing.get("already_priced_penalty"),

@@ -194,6 +194,27 @@ def _candidate_domain_components(metrics):
     return ((metrics.get("external_components") or {}).get("domain") or {}).get("components", {})
 
 
+def _repricing_size_multiplier(candidate):
+    verdict = str(candidate.get("repricing_verdict") or "")
+    if verdict != "buy_now":
+        return 1.0
+
+    lane_prior = candidate.get("repricing_lane_prior")
+    try:
+        lane_prior = float(lane_prior)
+    except (TypeError, ValueError):
+        lane_prior = 0.50
+
+    multiplier = REPRICING_BUY_BASE_SIZE_MULTIPLIER + (lane_prior * REPRICING_BUY_PRIOR_SIZE_WEIGHT)
+    lane_key = str(candidate.get("repricing_lane_key") or "")
+    if lane_key == "conflict_fast":
+        multiplier += CONFLICT_BUY_SIZE_BONUS
+    elif lane_key == "release_hearing":
+        multiplier += RELEASE_HEARING_BUY_SIZE_BONUS
+
+    return max(0.50, min(REPRICING_BUY_MAX_SIZE_MULTIPLIER, multiplier))
+
+
 def _build_candidate(item, score_policy):
     graph = item.get("graph") or {}
     robust = item.get("robust") or {}
@@ -266,6 +287,7 @@ def _build_candidate(item, score_policy):
         "repricing_lane_key": None,
         "repricing_lane_label": None,
         "repricing_lane_prior": None,
+        "repricing_size_multiplier": 1.0,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -358,6 +380,7 @@ def _build_candidate(item, score_policy):
     candidate["repricing_lane_key"] = repricing.get("lane_key")
     candidate["repricing_lane_label"] = repricing.get("lane_label")
     candidate["repricing_lane_prior"] = repricing.get("lane_prior")
+    candidate["repricing_size_multiplier"] = _repricing_size_multiplier(candidate)
     candidate["catalyst_type"] = repricing.get("catalyst_type") or candidate.get("catalyst_type")
     candidate["catalyst_strength"] = repricing.get("catalyst_strength") or candidate.get("catalyst_strength")
     return candidate
@@ -1125,6 +1148,7 @@ def run():
             kelly_probability = candidate["fair"]
             size_multiplier = confidence
 
+        size_multiplier *= candidate.get("repricing_size_multiplier", 1.0)
         stake_usd = min(
             MAX_BET_USD,
             BANKROLL_USD * kelly_bet_fraction(kelly_probability, item["entry"]) * KELLY_FRACTION * size_multiplier,
