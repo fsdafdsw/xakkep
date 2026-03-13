@@ -1006,6 +1006,43 @@ def _build_release_buy_now(value_bets, watchlist, rejected_candidates):
     return release_rows[:MAX_RELEASE_BUY_NOW]
 
 
+def _build_best_watchlist(*candidate_groups):
+    rows = []
+    seen = set()
+    for group in candidate_groups:
+        for row in group or []:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            verdict = str(row.get("repricing_verdict") or "")
+            if verdict not in {"watch", "watch_high_upside", "watch_late"}:
+                continue
+            rows.append(dict(row))
+            seen.add(link)
+
+    rows.sort(
+        key=lambda x: (
+            -(1 if str(x.get("repricing_verdict") or "") == "watch_high_upside" else 0),
+            -(x.get("repricing_watch_score") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_lane_prior") or 0.0),
+            -(x.get("confidence") or 0.0),
+            -(x.get("net_edge") or -999.0),
+        )
+    )
+    return rows[:MAX_WATCHLIST]
+
+
+def _build_compact_radar(geopolitical_radar, excluded_links):
+    rows = []
+    for candidate in geopolitical_radar:
+        link = candidate.get("link")
+        if not link or link in excluded_links:
+            continue
+        rows.append(candidate)
+    return rows[:MAX_GEOPOLITICAL_RADAR]
+
+
 def _format_geopolitical_radar(rank, candidate):
     lines = _header_lines(rank, candidate)
     case_label = _repricing_case_label(candidate)
@@ -1243,17 +1280,8 @@ def run():
             -x["confidence"],
         ),
     )[:MAX_DIAGNOSTIC_CANDIDATES]
-    signals = (
-        "\n\n".join(_format_signal(i + 1, v) for i, v in enumerate(value_bets))
-        if value_bets
-        else "none"
-    )
     near_candidates = watchlist if watchlist else diagnostic_candidates
-    near_title = "Near misses" if watchlist else "Near misses / diagnostics"
-    near_formatter = _format_signal if watchlist else _format_rejected
-    near = "\n\n".join(near_formatter(i + 1, w) for i, w in enumerate(near_candidates)) if near_candidates else "none"
     displayed_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
-    displayed_links.update(candidate.get("link") for candidate in near_candidates if candidate.get("link"))
     geopolitical_radar = _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, displayed_links)
     conflict_leaderboard = _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates)
     conflict_links = {candidate.get("link") for candidate in conflict_leaderboard if candidate.get("link")}
@@ -1320,69 +1348,33 @@ def run():
         and candidate.get("link") not in call_meeting_links
     ]
     hostage_negotiation_links = {candidate.get("link") for candidate in hostage_negotiation_watchlist if candidate.get("link")}
-    high_upside_watchlist = _build_high_upside_watchlist(geopolitical_radar)
-    high_upside_links = {candidate.get("link") for candidate in high_upside_watchlist if candidate.get("link")}
-    geopolitical_radar_core = [
-        candidate
-        for candidate in geopolitical_radar
-        if candidate.get("link") not in high_upside_links
-        and candidate.get("link") not in conflict_links
-        and candidate.get("link") not in legal_links
-        and candidate.get("link") not in release_buy_links
-        and candidate.get("link") not in release_links
-        and candidate.get("link") not in ceasefire_links
-        and candidate.get("link") not in talk_call_links
-        and candidate.get("link") not in call_meeting_links
-        and candidate.get("link") not in hostage_negotiation_links
-    ]
-    conflict_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(conflict_leaderboard))
-        if conflict_leaderboard
+    best_watchlist = _build_best_watchlist(
+        watchlist,
+        conflict_leaderboard,
+        legal_catalyst_leaders,
+        release_watchlist,
+        ceasefire_watchlist,
+        talk_call_watchlist,
+        meeting_watchlist,
+        resume_talks_watchlist,
+        hostage_negotiation_watchlist,
+        geopolitical_radar,
+    )
+    displayed_buy_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
+    displayed_buy_links.update(candidate.get("link") for candidate in release_buy_now if candidate.get("link"))
+    displayed_watch_links = {candidate.get("link") for candidate in best_watchlist if candidate.get("link")}
+    geopolitical_radar_core = _build_compact_radar(
+        geopolitical_radar,
+        displayed_buy_links | displayed_watch_links,
+    )
+    buy_text = (
+        "\n\n".join(_format_signal(i + 1, v) for i, v in enumerate(value_bets))
+        if value_bets
         else "none"
     )
-    legal_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(legal_catalyst_leaders))
-        if legal_catalyst_leaders
-        else "none"
-    )
-    release_buy_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(release_buy_now))
-        if release_buy_now
-        else "none"
-    )
-    release_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(release_watchlist))
-        if release_watchlist
-        else "none"
-    )
-    ceasefire_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(ceasefire_watchlist))
-        if ceasefire_watchlist
-        else "none"
-    )
-    talk_call_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(talk_call_watchlist))
-        if talk_call_watchlist
-        else "none"
-    )
-    meeting_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(meeting_watchlist))
-        if meeting_watchlist
-        else "none"
-    )
-    resume_talks_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(resume_talks_watchlist))
-        if resume_talks_watchlist
-        else "none"
-    )
-    hostage_negotiation_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(hostage_negotiation_watchlist))
-        if hostage_negotiation_watchlist
-        else "none"
-    )
-    high_upside_text = (
-        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(high_upside_watchlist))
-        if high_upside_watchlist
+    watch_text = (
+        "\n\n".join(_format_geopolitical_radar(i + 1, v) for i, v in enumerate(best_watchlist))
+        if best_watchlist
         else "none"
     )
     radar_text = (
@@ -1392,65 +1384,23 @@ def run():
     )
 
     utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    day_summary = f"Today: {len(value_bets)} buys | {len(high_upside_watchlist)} high-upside watches | {len(geopolitical_radar_core)} radar ideas"
+    day_summary = f"Today: {len(value_bets)} buy now | {len(best_watchlist)} watchlist | {len(geopolitical_radar_core)} radar"
     report = f"""Polymarket edge scan - {utc_now}
 {day_summary}
 
-Scan stats
-Scanned: {len(markets)} | Passed base filters: {len(accepted)}
-Price coverage: {coverage['price_available']}/{len(markets)} | Orderbook coverage: {coverage['book_available']}/{len(markets)}
+Scan: {len(markets)} markets | {len(accepted)} passed filters | price {coverage['price_available']}/{len(markets)} | book {coverage['book_available']}/{len(markets)}
 
-Top recommendations
+Buy Now
 
-{signals}
+{buy_text}
 
-Conflict Repricing Leaders
+Best Watchlist
 
-{conflict_text}
+{watch_text}
 
-Legal Catalyst Leaders
-
-{legal_text}
-
-Release Buy Now
-
-{release_buy_text}
-
-Release Watchlist
-
-{release_text}
-
-Ceasefire Watchlist
-
-{ceasefire_text}
-
-Talk / Call Watchlist
-
-{talk_call_text}
-
-Meeting Watchlist
-
-{meeting_text}
-
-Resume Talks Watchlist
-
-{resume_talks_text}
-
-Hostage / Negotiation Watchlist
-
-{hostage_negotiation_text}
-
-High-Upside Watchlist
-
-{high_upside_text}
-
-Geopolitical Repricing Radar
+Radar
 
 {radar_text}
-
-{near_title}
-
-{near}
 """
 
     report_payload = {
@@ -1474,7 +1424,7 @@ Geopolitical Repricing Radar
         "resume_talks_watchlist": resume_talks_watchlist,
         "call_meeting_watchlist": call_meeting_watchlist,
         "hostage_negotiation_watchlist": hostage_negotiation_watchlist,
-        "high_upside_watchlist": high_upside_watchlist,
+        "best_watchlist": best_watchlist,
         "geopolitical_radar": geopolitical_radar_core,
         "near_misses": near_candidates,
         "diagnostic_candidates": diagnostic_candidates,
