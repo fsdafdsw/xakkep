@@ -2,21 +2,13 @@ import json
 from pathlib import Path
 
 from config import ESTIMATED_SLIPPAGE_BPS, REPORTS_DIR, TAKER_FEE_BPS
+from utils import safe_float as _safe_float
 
 
 def _to_utc_str(ts):
     from datetime import datetime, timezone
 
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
-def _safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def cost_per_share(entry_price, spread):

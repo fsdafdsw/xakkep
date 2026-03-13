@@ -1,7 +1,5 @@
 import json
-import time
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 
 from config import (
@@ -13,27 +11,11 @@ from config import (
 )
 from entity_normalization import extract_market_entities
 from graph_residuals import annotate_relation_residuals
+from http_client import fetch_json
 from market_profile import enrich_market_profile
 from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
-
-
-def _safe_float(value):
-    try:
-        if value is None or value == "":
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _safe_int(value):
-    try:
-        if value is None or value == "":
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+from utils import safe_float, safe_int
 
 
 def _parse_json_list(value):
@@ -90,7 +72,7 @@ def _extract_event_meta(market):
         "event_description": market.get("eventDescription"),
         "event_category": market.get("category"),
         "resolution_source": market.get("resolutionSource"),
-        "event_market_count": _safe_int(
+        "event_market_count": safe_int(
             market.get("eventMarketCount") or market.get("marketCount") or market.get("marketsCount")
         ),
     }
@@ -129,7 +111,7 @@ def _extract_event_meta(market):
                     if isinstance(event_markets, list):
                         meta["event_market_count"] = len(event_markets)
                     else:
-                        meta["event_market_count"] = _safe_int(
+                        meta["event_market_count"] = safe_int(
                             event.get("marketsCount") or event.get("marketCount") or event.get("numMarkets")
                         )
     return meta
@@ -146,26 +128,6 @@ def _hours_to_close(end_date):
     except ValueError:
         return None
 
-
-def _fetch_json(url):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; edge-bot/2.0)"}
-    last_error = None
-
-    for attempt in range(REQUEST_RETRIES + 1):
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-                payload = resp.read().decode("utf-8")
-                return json.loads(payload)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            if attempt < REQUEST_RETRIES:
-                sleep_seconds = REQUEST_BACKOFF_SECONDS * (2**attempt)
-                time.sleep(sleep_seconds)
-
-    raise RuntimeError(f"request failed: {last_error}")
-
-
 def _normalize_market(raw):
     event_meta = _extract_event_meta(raw)
     outcomes = _parse_json_list(raw.get("outcomes"))
@@ -176,8 +138,8 @@ def _normalize_market(raw):
     selected_price = _value_at(prices, selected_idx, cast=float)
     selected_token = _value_at(token_ids, selected_idx, cast=str)
 
-    best_bid = _safe_float(raw.get("bestBid"))
-    best_ask = _safe_float(raw.get("bestAsk"))
+    best_bid = safe_float(raw.get("bestBid"))
+    best_ask = safe_float(raw.get("bestAsk"))
     spread = None
     mid_from_book = None
 
@@ -206,11 +168,11 @@ def _normalize_market(raw):
         "event_market_count": event_meta["event_market_count"],
         "active": bool(raw.get("active", False)),
         "closed": bool(raw.get("closed", False)),
-        "volume": _safe_float(raw.get("volume")) or 0.0,
-        "volume24h": _safe_float(raw.get("volume24hr"))
-        or _safe_float(raw.get("volume24hrClob"))
+        "volume": safe_float(raw.get("volume")) or 0.0,
+        "volume24h": safe_float(raw.get("volume24hr"))
+        or safe_float(raw.get("volume24hrClob"))
         or 0.0,
-        "liquidity": _safe_float(raw.get("liquidity")) or 0.0,
+        "liquidity": safe_float(raw.get("liquidity")) or 0.0,
         "outcome_count": max(len(outcomes), len(prices), len(token_ids)),
         "outcomes": outcomes,
         "selected_outcome_index": selected_idx,
@@ -224,10 +186,10 @@ def _normalize_market(raw):
         "best_bid": best_bid,
         "best_ask": best_ask,
         "spread": spread,
-        "last_trade": _safe_float(raw.get("lastTradePrice")),
-        "one_hour_change": _safe_float(raw.get("oneHourPriceChange")) or 0.0,
-        "one_day_change": _safe_float(raw.get("oneDayPriceChange")) or 0.0,
-        "one_week_change": _safe_float(raw.get("oneWeekPriceChange")) or 0.0,
+        "last_trade": safe_float(raw.get("lastTradePrice")),
+        "one_hour_change": safe_float(raw.get("oneHourPriceChange")) or 0.0,
+        "one_day_change": safe_float(raw.get("oneDayPriceChange")) or 0.0,
+        "one_week_change": safe_float(raw.get("oneWeekPriceChange")) or 0.0,
         "end_date": raw.get("endDate"),
         "hours_to_close": _hours_to_close(raw.get("endDate")),
         "token_yes": selected_token,
@@ -257,7 +219,12 @@ def fetch_markets(limit=5000):
         url = f"{GAMMA_MARKETS_API}?{urllib.parse.urlencode(params)}"
 
         try:
-            data = _fetch_json(url)
+            data = fetch_json(
+                url,
+                timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+                retries=REQUEST_RETRIES,
+                backoff_seconds=REQUEST_BACKOFF_SECONDS,
+            )
         except Exception as exc:  # noqa: BLE001
             print("API error", exc)
             break

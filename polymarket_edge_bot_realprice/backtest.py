@@ -2,13 +2,11 @@ import argparse
 import heapq
 import json
 import os
-import time
 import urllib.parse
-import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from config import (
     ESTIMATED_SLIPPAGE_BPS,
@@ -35,6 +33,7 @@ from filter_policy import (
     signal_bucket,
 )
 from graph_residuals import annotate_relation_residuals
+from http_client import fetch_json
 from market_profile import enrich_market_profile
 from probability_model import estimated_probability, kelly_bet_fraction, net_edge_after_costs
 from research_dataset import build_snapshot_row, resolve_dataset_output, write_jsonl
@@ -44,6 +43,8 @@ from relations import annotate_market_relations
 from resolution_parser import parse_resolution_semantics
 from robust_signal import compute_robust_signal
 from strategy import evaluate_market
+from utils import clamp as _clamp
+from utils import safe_float as _safe_float
 
 GAMMA_EVENTS_API = "https://gamma-api.polymarket.com/events"
 CLOB_HISTORY_API = "https://clob.polymarket.com/prices-history"
@@ -59,15 +60,6 @@ def _get_meta_model_artifact():
         cached = load_meta_model(path)
         _META_MODEL_CACHE[path] = cached
     return cached
-
-
-def _safe_float(value: Any):
-    try:
-        if value is None or value == "":
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _parse_json_list(value):
@@ -99,19 +91,13 @@ def _to_utc_str(ts: int):
 
 
 def _request_json(url: str):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; edge-bot-backtest/1.0)"}
-    last_error = None
-    for attempt in range(REQUEST_RETRIES + 1):
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            if attempt < REQUEST_RETRIES:
-                sleep_time = REQUEST_BACKOFF_SECONDS * (2**attempt)
-                time.sleep(sleep_time)
-    raise RuntimeError(f"request failed: {last_error}")
+    return fetch_json(
+        url,
+        timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+        retries=REQUEST_RETRIES,
+        backoff_seconds=REQUEST_BACKOFF_SECONDS,
+        user_agent="Mozilla/5.0 (compatible; edge-bot-backtest/1.0)",
+    )
 
 
 def _closed_event_exists(offset: int):
@@ -207,10 +193,6 @@ def _resolved_binary_outcome(price):
     if price <= 0.01:
         return 0
     return None
-
-
-def _clamp(value, low=0.01, high=0.99):
-    return max(low, min(high, value))
 
 
 def _candidate_event_key(candidate):

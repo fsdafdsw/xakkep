@@ -1,18 +1,12 @@
+from utils import clamp, safe_float as _safe_float
+
+
 def _clamp(value, low=0.01, high=0.99):
-    return max(low, min(high, value))
+    return clamp(value, low, high)
 
 
 def _clamp_price(value, low=0.0, high=0.99):
-    return max(low, min(high, value))
-
-
-def _safe_float(value, default=0.0):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return clamp(value, low, high)
 
 
 def _policy_for(action_family, repricing_verdict=None, catalyst_type=None):

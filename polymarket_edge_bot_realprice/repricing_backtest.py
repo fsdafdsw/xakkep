@@ -19,28 +19,9 @@ from catalyst_parser import parse_catalyst
 from config import MIN_GEOPOLITICAL_REPRICING, REPORTS_DIR
 from exit_policy import should_execute_repricing_trade, simulate_exit
 from repricing_selector import score_repricing_signal
-
-
-def _safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _clamp(value, low=0.0, high=1.0):
-    return max(low, min(high, value))
+from utils import clamp as _clamp
+from utils import safe_float as _safe_float
+from utils import safe_int as _safe_int
 
 
 def _parse_csv_floats(text):

@@ -54,19 +54,11 @@ from config import (
 )
 from meeting_subtype import infer_meeting_subtype
 from repricing_context import build_repricing_context
+from utils import clamp as _base_clamp, safe_float as _safe_float
 
 
 def _clamp(value, low=0.0, high=1.0):
-    return max(low, min(high, value))
-
-
-def _safe_float(value, default=0.0):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return _base_clamp(value, low, high)
 
 
 def _domain_components(model):
