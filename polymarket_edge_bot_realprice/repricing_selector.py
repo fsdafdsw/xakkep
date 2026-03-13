@@ -334,6 +334,7 @@ def score_repricing_signal(
     catalyst_hardness = str(components.get("catalyst_hardness") or "soft")
     catalyst_reversibility = str(components.get("catalyst_reversibility") or "high")
     catalyst_has_official_source = bool(components.get("catalyst_has_official_source"))
+    action_family = components.get("action_family")
     hard_state = bool(components.get("hard_state"))
     binary_event_grid = bool(components.get("binary_event_grid"))
     question_geo_keywords = list(components.get("question_geo_keywords") or [])
@@ -358,6 +359,10 @@ def score_repricing_signal(
         entry_price=entry_price,
         repricing_potential=repricing_potential,
         catalyst_strength=catalyst_strength,
+        action_family=action_family,
+        catalyst_type=catalyst_type,
+        meeting_subtype=meeting_subtype,
+        market_type=market_type,
         spread=spread,
         liquidity=liquidity,
         volume24h=volume24h,
@@ -429,7 +434,6 @@ def score_repricing_signal(
     )
     score = _clamp(score)
     watch_score = _clamp(watch_score)
-    action_family = components.get("action_family")
     family_policy = _family_policy(action_family, catalyst_hardness, catalyst_type, meeting_subtype)
     lane_key, lane_label, lane_prior = _repricing_lane(action_family, catalyst_type, meeting_subtype)
     conflict_setup_score = 0.0
@@ -646,6 +650,9 @@ def score_repricing_signal(
         "compression_score": repricing_context["compression_score"],
         "deadline_pressure": repricing_context["deadline_pressure"],
         "book_quality": repricing_context["book_quality"],
+        "urgency_phase": repricing_context["urgency_phase"],
+        "urgency_decay_rate": repricing_context["urgency_decay_rate"],
+        "urgency_edge_multiplier": repricing_context["urgency_edge_multiplier"],
         "volume_support": volume_support,
         "volume_anomaly": volume_anomaly,
         "volume_confirmation": volume_confirmation,

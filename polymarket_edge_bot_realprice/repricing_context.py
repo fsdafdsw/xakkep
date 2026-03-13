@@ -24,11 +24,131 @@ def _deadline_pressure(days_to_close):
     return 0.22
 
 
+def _urgency_profile(days_to_close, action_family=None, catalyst_type=None, meeting_subtype=None, market_type=None):
+    days = max(0.0, _safe_float(days_to_close, 0.0))
+    action_family = str(action_family or "")
+    catalyst_type = str(catalyst_type or "")
+    meeting_subtype = str(meeting_subtype or "")
+    market_type = str(market_type or "")
+
+    score = _deadline_pressure(days)
+    phase = "standard"
+    decay_rate = 1.0
+
+    if action_family == "conflict" or catalyst_type == "military_action":
+        if days <= 1.0:
+            score, phase, decay_rate = 0.98, "imminent", 3.0
+        elif days <= 3.0:
+            score, phase, decay_rate = 0.90, "urgent", 2.4
+        elif days <= 7.0:
+            score, phase, decay_rate = 0.78, "hot", 1.8
+        elif days <= 21.0:
+            score, phase, decay_rate = 0.56, "building", 1.2
+        elif days <= 60.0:
+            score, phase, decay_rate = 0.32, "early", 0.7
+        else:
+            score, phase, decay_rate = 0.16, "distant", 0.4
+    elif action_family == "release" and catalyst_type in {"hearing", "court_ruling", "appeal"}:
+        if days <= 2.0:
+            score, phase, decay_rate = 0.95, "calendar_imminent", 2.8
+        elif days <= 7.0:
+            score, phase, decay_rate = 0.86, "calendar_urgent", 2.1
+        elif days <= 21.0:
+            score, phase, decay_rate = 0.74, "approaching_hearing", 1.5
+        elif days <= 45.0:
+            score, phase, decay_rate = 0.54, "on_calendar", 1.0
+        elif days <= 90.0:
+            score, phase, decay_rate = 0.34, "too_early", 0.6
+        else:
+            score, phase, decay_rate = 0.18, "distant", 0.35
+    elif action_family == "release" and catalyst_type == "hostage_release":
+        if days <= 3.0:
+            score, phase, decay_rate = 0.82, "urgent_window", 1.9
+        elif days <= 14.0:
+            score, phase, decay_rate = 0.70, "active_window", 1.4
+        elif days <= 45.0:
+            score, phase, decay_rate = 0.52, "developing", 0.95
+        elif days <= 90.0:
+            score, phase, decay_rate = 0.34, "too_early", 0.6
+        else:
+            score, phase, decay_rate = 0.18, "distant", 0.35
+    elif action_family == "diplomacy" and catalyst_type == "call_or_meeting":
+        if meeting_subtype == "talk_call":
+            if days <= 3.0:
+                score, phase, decay_rate = 0.74, "call_window", 1.5
+            elif days <= 14.0:
+                score, phase, decay_rate = 0.84, "active_window", 1.6
+            elif days <= 30.0:
+                score, phase, decay_rate = 0.78, "ripe", 1.25
+            elif days <= 60.0:
+                score, phase, decay_rate = 0.58, "forming", 0.9
+            elif days <= 120.0:
+                score, phase, decay_rate = 0.34, "too_early", 0.55
+            else:
+                score, phase, decay_rate = 0.16, "distant", 0.30
+        elif meeting_subtype == "meeting":
+            if days <= 7.0:
+                score, phase, decay_rate = 0.66, "meeting_window", 1.3
+            elif days <= 21.0:
+                score, phase, decay_rate = 0.78, "active_window", 1.35
+            elif days <= 45.0:
+                score, phase, decay_rate = 0.70, "forming", 1.05
+            elif days <= 90.0:
+                score, phase, decay_rate = 0.50, "early", 0.75
+            else:
+                score, phase, decay_rate = 0.22, "distant", 0.35
+        elif meeting_subtype == "resume_talks":
+            if days <= 14.0:
+                score, phase, decay_rate = 0.72, "restart_window", 1.2
+            elif days <= 45.0:
+                score, phase, decay_rate = 0.80, "active_window", 1.3
+            elif days <= 90.0:
+                score, phase, decay_rate = 0.64, "forming", 0.95
+            elif days <= 180.0:
+                score, phase, decay_rate = 0.38, "early", 0.55
+            else:
+                score, phase, decay_rate = 0.18, "distant", 0.30
+    elif action_family == "diplomacy" and catalyst_type == "ceasefire":
+        if days <= 3.0:
+            score, phase, decay_rate = 0.88, "urgent_window", 1.9
+        elif days <= 14.0:
+            score, phase, decay_rate = 0.80, "active_window", 1.5
+        elif days <= 45.0:
+            score, phase, decay_rate = 0.58, "developing", 1.0
+        elif days <= 90.0:
+            score, phase, decay_rate = 0.36, "early", 0.6
+        else:
+            score, phase, decay_rate = 0.18, "distant", 0.35
+    elif market_type in {"dated_binary", "near_term_binary"}:
+        if days <= 1.0:
+            score, phase, decay_rate = 0.92, "imminent", 2.6
+        elif days <= 3.0:
+            score, phase, decay_rate = 0.80, "urgent", 1.8
+        elif days <= 7.0:
+            score, phase, decay_rate = 0.66, "approaching", 1.3
+        elif days <= 30.0:
+            score, phase, decay_rate = 0.48, "normal", 1.0
+        else:
+            score, phase, decay_rate = 0.24, "distant", 0.45
+
+    edge_multiplier = 1.0 + ((score - 0.5) * 0.30)
+    return {
+        "urgency_score": _clamp(score),
+        "phase": phase,
+        "decay_rate": decay_rate,
+        "edge_multiplier": edge_multiplier,
+    }
+
+
 def build_repricing_context(
     *,
     entry_price,
     repricing_potential,
     catalyst_strength,
+    action_family=None,
+    catalyst_type=None,
+    meeting_subtype=None,
+    market_type=None,
     spread=None,
     liquidity=None,
     volume24h=None,
@@ -84,7 +204,14 @@ def build_repricing_context(
     compression_score -= _clamp(max(0.0, spread - 0.035) * 6.0) * 0.25
     compression_score = _clamp(compression_score)
 
-    deadline_pressure = _deadline_pressure(days_to_close)
+    urgency = _urgency_profile(
+        days_to_close,
+        action_family=action_family,
+        catalyst_type=catalyst_type,
+        meeting_subtype=meeting_subtype,
+        market_type=market_type,
+    )
+    deadline_pressure = urgency["urgency_score"]
     book_quality = _clamp(
         (_clamp(liquidity / 2500.0) * 0.55) + (_clamp(volume24h / 1200.0) * 0.45)
     )
@@ -152,4 +279,7 @@ def build_repricing_context(
         "volume_anomaly": volume_anomaly,
         "volume_confirmation": volume_confirmation,
         "days_to_close": days_to_close,
+        "urgency_phase": urgency["phase"],
+        "urgency_decay_rate": urgency["decay_rate"],
+        "urgency_edge_multiplier": urgency["edge_multiplier"],
     }
