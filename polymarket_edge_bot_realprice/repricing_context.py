@@ -36,6 +36,8 @@ def build_repricing_context(
     one_day_change=None,
     one_week_change=None,
     hours_to_close=None,
+    volume_anomaly=None,
+    volume_confirmation=None,
     max_buy_price=0.35,
 ):
     entry_price = _safe_float(entry_price, 0.5)
@@ -47,6 +49,8 @@ def build_repricing_context(
     one_hour_change = _safe_float(one_hour_change, 0.0)
     one_day_change = _safe_float(one_day_change, 0.0)
     one_week_change = _safe_float(one_week_change, 0.0)
+    volume_anomaly = _safe_float(volume_anomaly, 0.0)
+    volume_confirmation = _safe_float(volume_confirmation, 0.0)
     days_to_close = max(0.0, _safe_float(hours_to_close, 0.0) / 24.0)
 
     recent_runup = _clamp(
@@ -85,6 +89,7 @@ def build_repricing_context(
         (_clamp(liquidity / 2500.0) * 0.55) + (_clamp(volume24h / 1200.0) * 0.45)
     )
     raw_attention_gap = _clamp(repricing_potential - entry_price)
+    volume_support = _clamp((volume_anomaly * 0.60) + (volume_confirmation * 0.40))
 
     underreaction_score = _clamp(
         (raw_attention_gap * 0.54)
@@ -92,6 +97,7 @@ def build_repricing_context(
         + (recent_selloff * 0.16)
         + (deadline_pressure * 0.08)
         + (catalyst_strength * 0.14)
+        + (volume_support * 0.10)
         - (recent_runup * 0.62)
     )
     fresh_catalyst_score = _clamp(
@@ -99,14 +105,21 @@ def build_repricing_context(
         + (deadline_pressure * 0.18)
         + (compression_score * 0.18)
         + (book_quality * 0.10)
+        + (volume_support * 0.12)
         + (_clamp(max(0.0, 0.10 - recent_runup) / 0.10) * 0.16)
         - (_clamp(max(0.0, spread - 0.03) * 6.0) * 0.08)
     )
 
-    attention_gap = _clamp(raw_attention_gap + (recent_selloff * 0.10) - (recent_runup * 0.18))
+    attention_gap = _clamp(
+        raw_attention_gap
+        + (recent_selloff * 0.10)
+        + (volume_support * 0.04)
+        - (recent_runup * 0.18)
+    )
     stale_score = _clamp(
         (attention_gap * 0.44)
         + (compression_score * 0.28)
+        + (volume_anomaly * 0.08)
         + (_clamp(max(0.0, 0.08 - recent_runup) / 0.08) * 0.18)
         + (deadline_pressure * 0.10)
     )
@@ -135,5 +148,8 @@ def build_repricing_context(
         "compression_score": compression_score,
         "deadline_pressure": deadline_pressure,
         "book_quality": book_quality,
+        "volume_support": volume_support,
+        "volume_anomaly": volume_anomaly,
+        "volume_confirmation": volume_confirmation,
         "days_to_close": days_to_close,
     }

@@ -89,6 +89,42 @@ class RepricingSelectorTests(unittest.TestCase):
         self.assertIn(result["verdict"], {"watch", "watch_high_upside", "watch_late"})
         self.assertNotEqual(result["verdict"], "buy_now")
 
+    def test_volume_confirmation_improves_repricing_score(self):
+        base_kwargs = {
+            "entry_price": 0.12,
+            "confidence": 0.76,
+            "net_edge": 0.002,
+            "net_edge_lcb": -0.006,
+            "spread": 0.02,
+            "one_hour_change": 0.004,
+            "one_day_change": 0.01,
+            "one_week_change": 0.0,
+            "hours_to_close": 72.0,
+            "model": _geo_model(
+                "diplomacy",
+                "call_or_meeting",
+                catalyst_hardness="soft",
+                catalyst_reversibility="high",
+                catalyst_has_official_source=False,
+                repricing_potential=0.74,
+            ),
+            "category_group": "geopolitics",
+            "question": "Will Trump talk to Vladimir Putin in February?",
+        }
+        weak = score_repricing_signal(
+            volume_anomaly=0.0,
+            volume_confirmation=0.0,
+            **base_kwargs,
+        )
+        strong = score_repricing_signal(
+            volume_anomaly=0.8,
+            volume_confirmation=0.9,
+            **base_kwargs,
+        )
+        self.assertGreater(strong["volume_support"], weak["volume_support"])
+        self.assertGreater(strong["fresh_catalyst_score"], weak["fresh_catalyst_score"])
+        self.assertGreater(strong["attention_gap"], weak["attention_gap"])
+
 
 if __name__ == "__main__":
     unittest.main()

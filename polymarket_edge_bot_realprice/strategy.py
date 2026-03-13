@@ -5,6 +5,7 @@ from features import (
     compute_momentum,
     compute_orderbook_signal,
     compute_quality,
+    compute_volume_anomaly,
 )
 from news_signal import news_sentiment
 
@@ -12,16 +13,18 @@ def evaluate_market(m):
     quality = compute_quality(m)
     momentum = compute_momentum(m)
     anomaly = compute_anomaly(m)
+    volume_signal = compute_volume_anomaly(m)
     orderbook = compute_orderbook_signal(m)
     news = news_sentiment(m.get("question"))
     external = compute_external_signal(m)
 
     # Confidence favors deep/liquid books and stable microstructure.
     base_confidence = (
-        (quality * 0.45)
-        + (orderbook * 0.30)
-        + ((1 - anomaly) * 0.15)
-        + (news * 0.10)
+        (quality * 0.40)
+        + (orderbook * 0.26)
+        + ((1 - anomaly) * 0.14)
+        + (news * 0.08)
+        + (volume_signal["confirmation"] * 0.12)
     )
     confidence = base_confidence + (
         (external["confidence"] - 0.5) * EXTERNAL_CONFIDENCE_WEIGHT
@@ -31,6 +34,9 @@ def evaluate_market(m):
         "quality": quality,
         "momentum": momentum,
         "anomaly": anomaly,
+        "volume_anomaly": volume_signal["anomaly_score"],
+        "volume_confirmation": volume_signal["confirmation"],
+        "volume_pressure": volume_signal["pressure"],
         "orderbook": orderbook,
         "news": news,
         "external": external["signal"],

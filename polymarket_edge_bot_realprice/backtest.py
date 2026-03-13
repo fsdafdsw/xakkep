@@ -542,6 +542,8 @@ def _annotate_candidates_with_repricing_selector(candidates):
             one_day_change=candidate.one_day_change,
             one_week_change=candidate.one_week_change,
             hours_to_close=candidate.hours_to_close,
+            volume_anomaly=candidate.model.get("volume_anomaly"),
+            volume_confirmation=candidate.model.get("volume_confirmation"),
             model=candidate.model,
             market_type=candidate.market_type,
             category_group=candidate.category_group,

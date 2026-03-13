@@ -56,6 +56,47 @@ def compute_anomaly(market):
     return _clamp(deviation / 0.12)
 
 
+def compute_volume_anomaly(market):
+    volume24h = float(market.get("volume24h") or 0.0)
+    volume_total = float(market.get("volume") or volume24h or 0.0)
+    liquidity = float(market.get("liquidity") or 0.0)
+    spread = market.get("spread")
+    spread = 0.04 if spread is None else float(spread)
+
+    one_hour = float(market.get("one_hour_change") or 0.0)
+    one_day = float(market.get("one_day_change") or 0.0)
+    one_week = float(market.get("one_week_change") or 0.0)
+
+    total_baseline = volume_total / 30.0 if volume_total > 0 else 0.0
+    liquidity_baseline = liquidity * 0.12 if liquidity > 0 else 0.0
+    expected_volume = max(75.0, total_baseline, liquidity_baseline)
+
+    volume_ratio = volume24h / expected_volume if expected_volume > 0 else 0.0
+    anomaly_score = _clamp((volume_ratio - 1.0) / 4.0)
+
+    directional_move = (one_hour * 0.60) + (one_day * 0.30) + (one_week * 0.10)
+    positive_move = _clamp(max(0.0, directional_move) / 0.08)
+    move_strength = _clamp(max(abs(one_hour) * 8.0, abs(one_day) * 2.0, abs(one_week)))
+    spread_quality = _clamp(1.0 - (spread / 0.10))
+
+    confirmation = _clamp(
+        (anomaly_score * 0.52)
+        + (positive_move * 0.28)
+        + (move_strength * 0.12)
+        + (spread_quality * 0.08)
+    )
+
+    pressure = _clamp((math.tanh(directional_move * 8.0) + 1.0) / 2.0)
+
+    return {
+        "anomaly_score": anomaly_score,
+        "confirmation": confirmation,
+        "pressure": pressure,
+        "volume_ratio": volume_ratio,
+        "expected_volume": expected_volume,
+    }
+
+
 def compute_orderbook_signal(market):
     bid = market.get("best_bid")
     ask = market.get("best_ask")

@@ -293,6 +293,8 @@ def score_repricing_signal(
     one_day_change=None,
     one_week_change=None,
     hours_to_close=None,
+    volume_anomaly=None,
+    volume_confirmation=None,
     model,
     market_type=None,
     category_group=None,
@@ -346,6 +348,11 @@ def score_repricing_signal(
     hours_to_close = _safe_float(hours_to_close, _safe_float(components.get("hours_to_close"), 0.0))
     relation_support_confidence = _safe_float(relation_residual.get("support_confidence"), 0.0)
     relation_residual_gap = _safe_float(relation_residual.get("residual"), 0.0)
+    volume_anomaly = _safe_float(volume_anomaly, model.get("volume_anomaly") if isinstance(model, dict) else None)
+    volume_confirmation = _safe_float(
+        volume_confirmation,
+        model.get("volume_confirmation") if isinstance(model, dict) else None,
+    )
 
     repricing_context = build_repricing_context(
         entry_price=entry_price,
@@ -358,6 +365,8 @@ def score_repricing_signal(
         one_day_change=one_day_change,
         one_week_change=one_week_change,
         hours_to_close=hours_to_close,
+        volume_anomaly=volume_anomaly,
+        volume_confirmation=volume_confirmation,
         max_buy_price=MAX_REPRICING_BUY_PRICE,
     )
     attention_gap = repricing_context["attention_gap"]
@@ -372,6 +381,7 @@ def score_repricing_signal(
     liquidity_penalty = _clamp(max(0.0, (250.0 - liquidity) / 250.0) * 0.25)
     volume_penalty = _clamp(max(0.0, (200.0 - volume24h) / 200.0) * 0.18)
     low_price_optionality = _clamp(max(0.0, 0.24 - entry_price) / 0.24)
+    volume_support = repricing_context["volume_support"]
 
     catalyst_bonus = catalyst_strength * 0.24
     if catalyst_hardness == "hard":
@@ -387,6 +397,7 @@ def score_repricing_signal(
     score += fresh_catalyst_score * 0.16
     score += attention_gap * 0.12
     score += stale_score * 0.10
+    score += volume_support * 0.08
     score += catalyst_bonus
     score += (confidence - 0.5) * 0.18
     score += (domain_confidence - 0.5) * 0.12
@@ -405,6 +416,7 @@ def score_repricing_signal(
         + (attention_gap * 0.08)
         + (underreaction_score * 0.08)
         + (fresh_catalyst_score * 0.06)
+        + (volume_support * 0.05)
         + (0.04 if catalyst_type in {"hostage_release", "appeal", "court_ruling", "military_action"} else 0.0)
     )
     optionality_score = _clamp(
@@ -634,6 +646,9 @@ def score_repricing_signal(
         "compression_score": repricing_context["compression_score"],
         "deadline_pressure": repricing_context["deadline_pressure"],
         "book_quality": repricing_context["book_quality"],
+        "volume_support": volume_support,
+        "volume_anomaly": volume_anomaly,
+        "volume_confirmation": volume_confirmation,
         "family_policy": family_policy,
         "conflict_setup_score": conflict_setup_score,
         "conflict_urgency_score": conflict_urgency_score,

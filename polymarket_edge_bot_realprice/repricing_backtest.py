@@ -259,6 +259,8 @@ def _rebuild_repricing_prediction(row, *, one_hour_change, one_day_change, one_w
         one_day_change=one_day_change,
         one_week_change=one_week_change,
         hours_to_close=hours_to_close,
+        volume_anomaly=((row.get("features") or {}).get("volume_anomaly")),
+        volume_confirmation=((row.get("features") or {}).get("volume_confirmation")),
         model=model,
         market_type=row.get("market_type"),
         category_group=row.get("category_group"),

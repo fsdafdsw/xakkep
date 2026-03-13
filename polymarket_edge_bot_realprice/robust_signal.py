@@ -48,6 +48,8 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     quality = _safe_float(metrics.get("quality"), 0.5)
     orderbook = _safe_float(metrics.get("orderbook"), 0.5)
     anomaly = _safe_float(metrics.get("anomaly"), 0.5)
+    volume_anomaly = _safe_float(metrics.get("volume_anomaly"), 0.0)
+    volume_confirmation = _safe_float(metrics.get("volume_confirmation"), 0.0)
     base_confidence = _safe_float(metrics.get("confidence"), 0.5)
     external_confidence = _safe_float(metrics.get("external_confidence"), 0.5)
     domain_confidence = _safe_float(metrics.get("domain_confidence"), external_confidence)
@@ -95,6 +97,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     reliability += max(0.0, domain_line_confirmation) * 0.08
     reliability += semantic_confidence * 0.08
     reliability += relation_confidence * 0.08
+    reliability += volume_confirmation * 0.08
     reliability += min(0.06, relation_degree * 0.01)
     reliability += relation_support_confidence * 0.12
     reliability += min(0.06, max(0.0, relation_residual_gap) * 1.5)
@@ -126,6 +129,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     uncertainty += (1.0 - base_confidence) * UNCERTAINTY_CONFIDENCE_WEIGHT
     uncertainty += (1.0 - external_confidence) * UNCERTAINTY_EXTERNAL_CONF_WEIGHT
     uncertainty += anomaly * UNCERTAINTY_ANOMALY_WEIGHT
+    uncertainty += max(0.0, volume_anomaly - volume_confirmation) * 0.010
     uncertainty += spread_risk * UNCERTAINTY_SPREAD_WEIGHT
     uncertainty += horizon_risk * UNCERTAINTY_HORIZON_WEIGHT
     uncertainty += category_risk * UNCERTAINTY_CATEGORY_WEIGHT
@@ -138,6 +142,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
     uncertainty += min(0.015, odds_dispersion * 0.50)
     uncertainty -= min(0.012, odds_match_quality * 0.012)
     uncertainty -= min(0.010, odds_bookmaker_count * 0.0015)
+    uncertainty -= min(0.010, volume_confirmation * 0.012)
     uncertainty += max(0.0, 0.60 - meta_confidence) * 0.040
     uncertainty = max(0.004, min(uncertainty, 0.18))
 
@@ -205,5 +210,7 @@ def compute_robust_signal(market, metrics, fair, graph_metrics=None):
             "relation_constraint_violation": relation_constraint_violation,
             "relation_inconsistency": relation_inconsistency,
             "relation_residual_gap": relation_residual_gap,
+            "volume_anomaly": volume_anomaly,
+            "volume_confirmation": volume_confirmation,
         },
     }

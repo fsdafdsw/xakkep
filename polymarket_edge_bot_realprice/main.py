@@ -158,10 +158,11 @@ def _annotate_event_graph_and_robust_signal(items):
 
 def _baseline_confidence(metrics):
     base_confidence = (
-        (metrics.get("quality", 0.5) * 0.45)
-        + (metrics.get("orderbook", 0.5) * 0.30)
-        + ((1.0 - metrics.get("anomaly", 0.5)) * 0.15)
-        + (metrics.get("news", 0.5) * 0.10)
+        (metrics.get("quality", 0.5) * 0.40)
+        + (metrics.get("orderbook", 0.5) * 0.26)
+        + ((1.0 - metrics.get("anomaly", 0.5)) * 0.14)
+        + (metrics.get("news", 0.5) * 0.08)
+        + (metrics.get("volume_confirmation", 0.5) * 0.12)
     )
     return max(0.0, min(base_confidence, 1.0))
 
@@ -174,6 +175,9 @@ def _prepare_live_metrics(metrics):
         "quality": metrics.get("quality", 0.5),
         "momentum": metrics.get("momentum", 0.5),
         "anomaly": metrics.get("anomaly", 0.5),
+        "volume_anomaly": metrics.get("volume_anomaly", 0.0),
+        "volume_confirmation": metrics.get("volume_confirmation", 0.5),
+        "volume_pressure": metrics.get("volume_pressure", 0.5),
         "orderbook": metrics.get("orderbook", 0.5),
         "news": metrics.get("news", 0.5),
         "external": metrics.get("external", 0.5),
@@ -354,6 +358,8 @@ def _build_candidate(item, score_policy):
         one_day_change=item["market"].get("one_day_change"),
         one_week_change=item["market"].get("one_week_change"),
         hours_to_close=item["market"].get("hours_to_close"),
+        volume_anomaly=candidate["model"].get("volume_anomaly"),
+        volume_confirmation=candidate["model"].get("volume_confirmation"),
         model=candidate["model"],
         market_type=candidate["market_type"],
         category_group=candidate["category_group"],
