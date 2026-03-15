@@ -2,7 +2,7 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 10.0,
-  "cash_usd": 9.63531346153846,
+  "cash_usd": 9.279358731808731,
   "realized_pnl_usd": 0.0,
   "positions": [
     {
@@ -32,12 +32,41 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.078,
-      "last_mark_price": 0.071
+      "last_mark_price": 0.07
+    },
+    {
+      "position_id": "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971:1773590475",
+      "market_key": "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971",
+      "market_id": "678750",
+      "event_slug": "how-many-different-countries-will-israel-strike-in-2026",
+      "link": "https://polymarket.com/event/how-many-different-countries-will-israel-strike-in-2026?tid=103149043231796752807018971660605675992799889771393087586255256574936406270971",
+      "question": "Will Israel strike 7 countries in 2026?",
+      "selected_outcome": "Yes",
+      "entry_price": 0.037,
+      "shares": 9.45945945945946,
+      "stake_usd": 0.35,
+      "total_outlay_usd": 0.3559547297297297,
+      "opened_ts": 1773590475,
+      "opened_at_utc": "2026-03-15 16:01:15 UTC",
+      "action_family": "conflict",
+      "catalyst_type": "military_action",
+      "lane_key": "conflict_fast",
+      "lane_label": "Conflict fast lane",
+      "trade_mode": "scout",
+      "take_profit_price": 0.1,
+      "stop_loss_price": 0.0296,
+      "stop_activation_hours": 18.0,
+      "time_stop_days": 3.0,
+      "time_stop_ts": 1773849675,
+      "trailing_arm_pct": 0.25,
+      "trailing_drawdown_pct": 0.18,
+      "max_mark_price": 0.037,
+      "last_mark_price": 0.037
     }
   ],
   "recently_closed": {},
   "daily_anchor_date": "2026-03-15",
   "daily_anchor_equity_usd": 10.0,
-  "run_count": 14,
-  "last_run_at_utc": "2026-03-15 15:40:59 UTC"
+  "run_count": 15,
+  "last_run_at_utc": "2026-03-15 16:01:15 UTC"
 }
