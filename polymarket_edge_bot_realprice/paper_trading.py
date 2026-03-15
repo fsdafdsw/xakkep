@@ -5,12 +5,17 @@ from pathlib import Path
 from config import (
     BANKROLL_USD,
     ESTIMATED_SLIPPAGE_BPS,
+    PAPER_DAILY_STOP_LOSS_USD,
     PAPER_INITIAL_BANKROLL_USD,
     PAPER_MAX_BET_USD,
     PAPER_MAX_OPEN_POSITIONS,
     PAPER_MIN_TRADE_USD,
     PAPER_REENTRY_COOLDOWN_MINUTES,
     PAPER_REPORT_MAX_OPEN_POSITIONS,
+    PAPER_SCOUT_ENABLED,
+    PAPER_SCOUT_LANES,
+    PAPER_SCOUT_MAX_PER_RUN,
+    PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
     TAKER_FEE_BPS,
 )
@@ -66,6 +71,8 @@ def _default_state():
         "realized_pnl_usd": 0.0,
         "positions": [],
         "recently_closed": {},
+        "daily_anchor_date": _utc_now().strftime("%Y-%m-%d"),
+        "daily_anchor_equity_usd": PAPER_INITIAL_BANKROLL_USD,
         "run_count": 0,
         "last_run_at_utc": None,
     }
@@ -133,6 +140,10 @@ def _scaled_stake(candidate_stake, equity):
     return min(PAPER_MAX_BET_USD, max(0.0, scaled))
 
 
+def _scout_stake(equity):
+    return min(PAPER_SCOUT_STAKE_USD, max(0.0, equity * 0.04))
+
+
 def _position_line(position, mark_price=None, unrealized_pnl=None):
     lane = position.get("lane_label") or position.get("lane_key") or "paper lane"
     parts = [position.get("question") or "Unknown market"]
@@ -146,7 +157,7 @@ def _position_line(position, mark_price=None, unrealized_pnl=None):
     return " | ".join(parts)
 
 
-def _open_position(state, candidate, now_dt, ledger_rows):
+def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
     if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
         return None
 
@@ -169,7 +180,10 @@ def _open_position(state, candidate, now_dt, ledger_rows):
         mark = safe_float(position.get("last_mark_price"), default=position.get("entry_price"))
         equity += _sale_proceeds(position.get("shares", 0.0), mark)
 
-    desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
+    if trade_mode == "scout":
+        desired_stake = _scout_stake(equity)
+    else:
+        desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
     if desired_stake < PAPER_MIN_TRADE_USD:
         desired_stake = PAPER_MIN_TRADE_USD
 
@@ -207,6 +221,7 @@ def _open_position(state, candidate, now_dt, ledger_rows):
         "catalyst_type": candidate.get("catalyst_type"),
         "lane_key": candidate.get("repricing_lane_key"),
         "lane_label": candidate.get("repricing_lane_label"),
+        "trade_mode": trade_mode,
         "take_profit_price": safe_float(exit_plan.get("take_profit_price")),
         "stop_loss_price": safe_float(exit_plan.get("stop_loss_price")),
         "stop_activation_hours": safe_float(exit_plan.get("stop_activation_hours"), default=12.0),
@@ -232,6 +247,8 @@ def _open_position(state, candidate, now_dt, ledger_rows):
             "total_outlay_usd": total_outlay,
             "lane_key": position.get("lane_key"),
             "catalyst_type": position.get("catalyst_type"),
+            "trade_mode": trade_mode,
+            "link": position.get("link"),
         }
     )
     return position
@@ -255,6 +272,8 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
             "reason": reason,
             "lane_key": position.get("lane_key"),
             "catalyst_type": position.get("catalyst_type"),
+            "trade_mode": position.get("trade_mode"),
+            "link": position.get("link"),
         }
     )
     return {
@@ -265,6 +284,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
         "reason": reason,
         "lane_label": position.get("lane_label") or position.get("lane_key"),
         "link": position.get("link"),
+        "trade_mode": position.get("trade_mode"),
     }
 
 
@@ -341,6 +361,7 @@ def _state_snapshot(state):
                 "opened_at_utc": position.get("opened_at_utc"),
                 "max_mark_price": safe_float(position.get("max_mark_price"), default=mark),
                 "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
+                "trade_mode": position.get("trade_mode"),
             }
         )
 
@@ -375,6 +396,7 @@ def _format_report(summary):
         "",
         f"Bank: ${start_bank:.2f} -> ${equity:.2f} ({sign}{change_pct:.2f}%)",
         f"Cash: ${summary['cash_usd']:.2f} | Open positions: {summary['open_position_count']} | Realized: {realized_sign}${abs(realized):.2f} | Unrealized: {unrealized_sign}${abs(unrealized):.2f}",
+        f"Daily guard: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Drawdown today ${summary.get('daily_drawdown_usd', 0.0):.2f} / ${PAPER_DAILY_STOP_LOSS_USD:.2f}",
         "",
         "Opened this run",
     ]
@@ -382,8 +404,10 @@ def _format_report(summary):
     if summary["opened"]:
         for idx, row in enumerate(summary["opened"], start=1):
             lines.append(
-                f"{idx}. {row['question']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | Stake ${row['stake_usd']:.2f} | {row['lane_label']}"
+                f"{idx}. {row['question']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | Stake ${row['stake_usd']:.2f} | {row['trade_mode']} | {row['lane_label']}"
             )
+            if row.get("link"):
+                lines.append(f"   Link: {row['link']}")
     else:
         lines.append("none")
 
@@ -393,8 +417,10 @@ def _format_report(summary):
             pnl = row["pnl_usd"]
             sign = "+" if pnl >= 0 else "-"
             lines.append(
-                f"{idx}. {row['question']} | EXIT @ {row['exit_price']:.3f} | PnL {sign}${abs(pnl):.2f} | {row['reason']}"
+                f"{idx}. {row['question']} | EXIT @ {row['exit_price']:.3f} | PnL {sign}${abs(pnl):.2f} | {row['reason']} | {row.get('trade_mode') or 'core'}"
             )
+            if row.get("link"):
+                lines.append(f"   Link: {row['link']}")
     else:
         lines.append("none")
 
@@ -404,15 +430,59 @@ def _format_report(summary):
         for idx, row in enumerate(open_rows, start=1):
             sign = "+" if row["unrealized_pnl_usd"] >= 0 else "-"
             lines.append(
-                f"{idx}. {row['question']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | Mark {row['mark_price']:.3f} | PnL {sign}${abs(row['unrealized_pnl_usd']):.2f}"
+                f"{idx}. {row['question']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | Mark {row['mark_price']:.3f} | PnL {sign}${abs(row['unrealized_pnl_usd']):.2f} | {row.get('trade_mode') or 'core'}"
             )
+            if row.get("link"):
+                lines.append(f"   Link: {row['link']}")
     else:
         lines.append("none")
 
     return "\n".join(lines)
 
 
-def run_paper_cycle(markets, buy_candidates, *, state_dir=None, generated_at_utc=None):
+def _refresh_daily_anchor(state, snapshot, now_dt):
+    today = now_dt.strftime("%Y-%m-%d")
+    if state.get("daily_anchor_date") != today:
+        state["daily_anchor_date"] = today
+        state["daily_anchor_equity_usd"] = snapshot["equity_usd"]
+
+
+def _daily_stop_hit(state, snapshot):
+    anchor = safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"])
+    drawdown = anchor - snapshot["equity_usd"]
+    return drawdown >= PAPER_DAILY_STOP_LOSS_USD, drawdown
+
+
+def _eligible_scout_candidates(best_watchlist):
+    if not PAPER_SCOUT_ENABLED:
+        return []
+
+    rows = []
+    seen = set()
+    for candidate in best_watchlist or []:
+        link = candidate.get("link")
+        if link and link in seen:
+            continue
+        if str(candidate.get("repricing_verdict") or "") != "watch_high_upside":
+            continue
+        if str(candidate.get("repricing_lane_key") or "") not in PAPER_SCOUT_LANES:
+            continue
+        rows.append(candidate)
+        if link:
+            seen.add(link)
+
+    rows.sort(
+        key=lambda row: (
+            -(row.get("repricing_watch_score") or 0.0),
+            -(row.get("repricing_optionality_score") or 0.0),
+            -(row.get("repricing_attention_gap") or 0.0),
+            -(row.get("confidence") or 0.0),
+        )
+    )
+    return rows[:PAPER_SCOUT_MAX_PER_RUN]
+
+
+def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, state_dir=None, generated_at_utc=None):
     now_dt = _utc_now()
     state = load_state(state_dir=state_dir)
     state["run_count"] = safe_int(state.get("run_count"), default=0) + 1
@@ -421,21 +491,27 @@ def run_paper_cycle(markets, buy_candidates, *, state_dir=None, generated_at_utc
     market_index = {_market_key_from_market(market): market for market in markets}
     ledger_rows = []
     closed = _update_positions(state, market_index, now_dt, ledger_rows)
+    post_close_snapshot = _state_snapshot(state)
+    _refresh_daily_anchor(state, post_close_snapshot, now_dt)
+    daily_stop_hit, daily_drawdown = _daily_stop_hit(state, post_close_snapshot)
 
     opened_positions = []
-    for candidate in buy_candidates:
-        position = _open_position(state, candidate, now_dt, ledger_rows)
-        if position:
-            opened_positions.append(
-                {
-                    "question": position.get("question"),
-                    "selected_outcome": position.get("selected_outcome"),
-                    "entry_price": safe_float(position.get("entry_price"), default=0.0),
-                    "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
-                    "lane_label": position.get("lane_label") or position.get("lane_key"),
-                    "link": position.get("link"),
-                }
-            )
+    if not daily_stop_hit:
+        for trade_mode, rows in (("core", buy_candidates), ("scout", _eligible_scout_candidates(best_watchlist))):
+            for candidate in rows:
+                position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
+                if position:
+                    opened_positions.append(
+                        {
+                            "question": position.get("question"),
+                            "selected_outcome": position.get("selected_outcome"),
+                            "entry_price": safe_float(position.get("entry_price"), default=0.0),
+                            "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
+                            "lane_label": position.get("lane_label") or position.get("lane_key"),
+                            "trade_mode": trade_mode,
+                            "link": position.get("link"),
+                        }
+                    )
 
     snapshot = _state_snapshot(state)
     summary = {
@@ -450,6 +526,9 @@ def run_paper_cycle(markets, buy_candidates, *, state_dir=None, generated_at_utc
         "closed": closed,
         "open_positions": snapshot["open_positions"],
         "run_count": state["run_count"],
+        "daily_stop_hit": daily_stop_hit,
+        "daily_drawdown_usd": daily_drawdown,
+        "daily_anchor_equity_usd": safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"]),
     }
 
     save_state(state, summary=summary, state_dir=state_dir)

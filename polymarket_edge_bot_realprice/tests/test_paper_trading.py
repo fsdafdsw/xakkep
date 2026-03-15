@@ -56,6 +56,23 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(summary["open_position_count"], 0)
             self.assertGreater(summary["realized_pnl_usd"], 0.0)
 
+    def test_opens_scout_trade_from_watch_high_upside_lane(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scout = _candidate(0.10, stake=0.25)
+            scout["repricing_verdict"] = "watch_high_upside"
+            scout["repricing_lane_key"] = "diplomacy_talk_call"
+            scout["repricing_lane_label"] = "Talk / call lane"
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [],
+                best_watchlist=[scout],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+
 
 if __name__ == "__main__":
     unittest.main()

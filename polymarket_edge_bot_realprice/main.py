@@ -1467,7 +1467,12 @@ Radar
         "report_text": report,
     }
     if PAPER_TRADING_ENABLED:
-        paper_result = run_paper_cycle(markets, value_bets, generated_at_utc=utc_now)
+        paper_result = run_paper_cycle(
+            markets,
+            value_bets,
+            best_watchlist=best_watchlist,
+            generated_at_utc=utc_now,
+        )
         report_payload["paper_trading"] = paper_result["summary"]
         report_payload["report_text"] = paper_result["report_text"]
         report = paper_result["report_text"]
