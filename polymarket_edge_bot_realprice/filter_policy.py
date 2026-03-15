@@ -102,6 +102,18 @@ def _is_intraday_crypto_noise(market, profile):
     return "up or down" in question
 
 
+def _is_low_signal_comparison_market(question):
+    if not question:
+        return False
+
+    q = question.lower().strip()
+    return (
+        q.startswith("what will happen before ")
+        or " before gta vi" in q
+        or " before gta 6" in q
+    )
+
+
 def filter_policy_for_market(market):
     profile = enrich_market_profile(market)
     policy = {
@@ -163,6 +175,8 @@ def filter_reason(market, entry_price=None, use_liquidity_filter=True):
     for pattern in policy["excluded_patterns"]:
         if pattern and pattern in question:
             return "excluded_pattern"
+    if _is_low_signal_comparison_market(question):
+        return "excluded_pattern"
 
     volume_ref = market.get("volume24h", 0.0) or market.get("volume", 0.0)
     ref_price = market.get("ref_price")
