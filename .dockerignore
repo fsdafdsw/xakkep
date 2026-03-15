@@ -1,0 +1,7 @@
+.git
+.gitignore
+.pycache_local
+reports
+**/__pycache__
+**/*.pyc
+polymarket_edge_bot_realprice/paper_state
