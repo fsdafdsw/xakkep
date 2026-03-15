@@ -61,12 +61,12 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.037,
-      "last_mark_price": 0.037
+      "last_mark_price": 0.034
     }
   ],
   "recently_closed": {},
   "daily_anchor_date": "2026-03-15",
   "daily_anchor_equity_usd": 10.0,
-  "run_count": 20,
-  "last_run_at_utc": "2026-03-15 19:03:39 UTC"
+  "run_count": 21,
+  "last_run_at_utc": "2026-03-15 19:39:16 UTC"
 }
