@@ -1044,6 +1044,34 @@ def _build_best_watchlist(*candidate_groups):
     return rows[:MAX_WATCHLIST]
 
 
+def _build_paper_scout_candidates(*candidate_groups):
+    rows = []
+    seen = set()
+    for group in candidate_groups:
+        for row in group or []:
+            link = row.get("link")
+            if not link or link in seen:
+                continue
+            verdict = str(row.get("repricing_verdict") or "")
+            if verdict not in {"buy_now", "watch", "watch_high_upside"}:
+                continue
+            rows.append(dict(row))
+            seen.add(link)
+
+    rows.sort(
+        key=lambda x: (
+            -(1 if str(x.get("repricing_verdict") or "") == "buy_now" else 0),
+            -(1 if str(x.get("repricing_verdict") or "") == "watch_high_upside" else 0),
+            -(x.get("repricing_watch_score") or 0.0),
+            -(x.get("repricing_score") or 0.0),
+            -(x.get("repricing_lane_prior") or 0.0),
+            -(x.get("repricing_attention_gap") or 0.0),
+            -(x.get("confidence") or 0.0),
+        )
+    )
+    return rows
+
+
 def _build_compact_radar(geopolitical_radar, excluded_links):
     rows = []
     for candidate in geopolitical_radar:
@@ -1371,6 +1399,19 @@ def run():
         hostage_negotiation_watchlist,
         geopolitical_radar,
     )
+    paper_scout_candidates = _build_paper_scout_candidates(
+        watchlist,
+        conflict_leaderboard,
+        legal_catalyst_leaders,
+        release_buy_now,
+        release_watchlist,
+        ceasefire_watchlist,
+        talk_call_watchlist,
+        meeting_watchlist,
+        resume_talks_watchlist,
+        hostage_negotiation_watchlist,
+        geopolitical_radar,
+    )
     displayed_buy_links = {candidate.get("link") for candidate in value_bets if candidate.get("link")}
     displayed_buy_links.update(candidate.get("link") for candidate in release_buy_now if candidate.get("link"))
     displayed_watch_links = {candidate.get("link") for candidate in best_watchlist if candidate.get("link")}
@@ -1471,6 +1512,7 @@ Radar
             markets,
             value_bets,
             best_watchlist=best_watchlist,
+            scout_candidates=paper_scout_candidates,
             generated_at_utc=utc_now,
         )
         report_payload["paper_trading"] = paper_result["summary"]

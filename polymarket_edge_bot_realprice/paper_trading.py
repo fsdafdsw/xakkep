@@ -11,10 +11,18 @@ from config import (
     PAPER_MAX_OPEN_POSITIONS,
     PAPER_MIN_TRADE_USD,
     PAPER_REENTRY_COOLDOWN_MINUTES,
+    PAPER_RADAR_SCOUT_ENABLED,
+    PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE,
+    PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP,
+    PAPER_RADAR_SCOUT_MIN_CONFIDENCE,
+    PAPER_RADAR_SCOUT_MIN_SCORE,
     PAPER_REPORT_MAX_OPEN_POSITIONS,
     PAPER_SCOUT_ENABLED,
     PAPER_SCOUT_LANES,
+    PAPER_SCOUT_MAX_ENTRY_PRICE,
     PAPER_SCOUT_MAX_PER_RUN,
+    PAPER_SCOUT_MIN_ATTENTION_GAP,
+    PAPER_SCOUT_MIN_WATCH_SCORE,
     PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
     TAKER_FEE_BPS,
@@ -453,19 +461,41 @@ def _daily_stop_hit(state, snapshot):
     return drawdown >= PAPER_DAILY_STOP_LOSS_USD, drawdown
 
 
-def _eligible_scout_candidates(best_watchlist):
+def _eligible_scout_candidates(candidates):
     if not PAPER_SCOUT_ENABLED:
         return []
 
     rows = []
     seen = set()
-    for candidate in best_watchlist or []:
+    for candidate in candidates or []:
         link = candidate.get("link")
         if link and link in seen:
             continue
-        if str(candidate.get("repricing_verdict") or "") != "watch_high_upside":
-            continue
-        if str(candidate.get("repricing_lane_key") or "") not in PAPER_SCOUT_LANES:
+        verdict = str(candidate.get("repricing_verdict") or "")
+        lane_key = str(candidate.get("repricing_lane_key") or "")
+        entry = safe_float(candidate.get("entry"), default=1.0)
+        watch_score = safe_float(candidate.get("repricing_watch_score"), default=0.0)
+        score = safe_float(candidate.get("repricing_score"), default=0.0)
+        attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
+        confidence = safe_float(candidate.get("confidence"), default=0.0)
+        is_watch_lane = lane_key in PAPER_SCOUT_LANES
+        is_radar_buy = (
+            PAPER_RADAR_SCOUT_ENABLED
+            and verdict == "buy_now"
+            and score >= PAPER_RADAR_SCOUT_MIN_SCORE
+            and confidence >= PAPER_RADAR_SCOUT_MIN_CONFIDENCE
+            and attention_gap >= PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP
+            and entry <= PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE
+        )
+        is_lane_high_upside = is_watch_lane and verdict == "watch_high_upside"
+        is_lane_strong_watch = (
+            is_watch_lane
+            and verdict == "watch"
+            and watch_score >= PAPER_SCOUT_MIN_WATCH_SCORE
+            and attention_gap >= PAPER_SCOUT_MIN_ATTENTION_GAP
+            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
+        )
+        if not (is_lane_high_upside or is_lane_strong_watch or is_radar_buy):
             continue
         rows.append(candidate)
         if link:
@@ -473,7 +503,9 @@ def _eligible_scout_candidates(best_watchlist):
 
     rows.sort(
         key=lambda row: (
+            -(1 if str(row.get("repricing_verdict") or "") == "buy_now" else 0),
             -(row.get("repricing_watch_score") or 0.0),
+            -(row.get("repricing_score") or 0.0),
             -(row.get("repricing_optionality_score") or 0.0),
             -(row.get("repricing_attention_gap") or 0.0),
             -(row.get("confidence") or 0.0),
@@ -482,7 +514,7 @@ def _eligible_scout_candidates(best_watchlist):
     return rows[:PAPER_SCOUT_MAX_PER_RUN]
 
 
-def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, state_dir=None, generated_at_utc=None):
+def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, scout_candidates=None, state_dir=None, generated_at_utc=None):
     now_dt = _utc_now()
     state = load_state(state_dir=state_dir)
     state["run_count"] = safe_int(state.get("run_count"), default=0) + 1
@@ -497,7 +529,8 @@ def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, state_dir=N
 
     opened_positions = []
     if not daily_stop_hit:
-        for trade_mode, rows in (("core", buy_candidates), ("scout", _eligible_scout_candidates(best_watchlist))):
+        scout_pool = scout_candidates if scout_candidates is not None else best_watchlist
+        for trade_mode, rows in (("core", buy_candidates), ("scout", _eligible_scout_candidates(scout_pool))):
             for candidate in rows:
                 position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
                 if position:
