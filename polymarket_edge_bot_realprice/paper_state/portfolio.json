@@ -6,6 +6,8 @@
   "realized_pnl_usd": 0.0,
   "positions": [],
   "recently_closed": {},
-  "run_count": 1,
-  "last_run_at_utc": "2026-03-15 09:20:35 UTC"
+  "daily_anchor_date": "2026-03-15",
+  "daily_anchor_equity_usd": 10.0,
+  "run_count": 2,
+  "last_run_at_utc": "2026-03-15 09:28:36 UTC"
 }
