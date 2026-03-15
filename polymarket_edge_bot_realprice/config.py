@@ -162,3 +162,11 @@ BOT_BUILD_ID = BOT_BUILD_ID[:7] if BOT_BUILD_ID else "unknown"
 BOT_SOURCE = os.getenv("BOT_SOURCE", "unknown")
 
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", "reports"))
+PAPER_TRADING_ENABLED = os.getenv("PAPER_TRADING_ENABLED", "false").lower() == "true"
+PAPER_INITIAL_BANKROLL_USD = float(os.getenv("PAPER_INITIAL_BANKROLL_USD", "10"))
+PAPER_MAX_BET_USD = float(os.getenv("PAPER_MAX_BET_USD", "1.5"))
+PAPER_MIN_TRADE_USD = float(os.getenv("PAPER_MIN_TRADE_USD", "0.35"))
+PAPER_MAX_OPEN_POSITIONS = int(os.getenv("PAPER_MAX_OPEN_POSITIONS", "3"))
+PAPER_REENTRY_COOLDOWN_MINUTES = float(os.getenv("PAPER_REENTRY_COOLDOWN_MINUTES", "30"))
+PAPER_STATE_DIR = Path(os.getenv("PAPER_STATE_DIR", "paper_state"))
+PAPER_REPORT_MAX_OPEN_POSITIONS = int(os.getenv("PAPER_REPORT_MAX_OPEN_POSITIONS", "5"))

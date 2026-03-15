@@ -17,6 +17,7 @@ from probability_model import (
     kelly_bet_fraction,
     net_edge_after_costs,
 )
+from paper_trading import run_paper_cycle
 from repricing_selector import score_repricing_signal
 from robust_signal import compute_robust_signal
 from scanner import fetch_markets
@@ -39,6 +40,12 @@ def _entry_price(market):
 
 def _event_key(market):
     return market.get("event_id") or market.get("event_slug") or market.get("id")
+
+
+def _market_key(market):
+    slug = market.get("event_slug") or market.get("slug") or market.get("id") or "unknown"
+    token = market.get("selected_token_id") or market.get("token_yes") or ""
+    return f"{slug}|{token}"
 
 
 def _market_link(market):
@@ -242,6 +249,10 @@ def _build_candidate(item, score_policy):
     outcomes = item["market"].get("outcomes") or []
     candidate = {
         "event_key": item["event_key"],
+        "market_id": item["market"].get("id"),
+        "event_slug": item["market"].get("event_slug"),
+        "selected_token_id": item["market"].get("selected_token_id"),
+        "market_key": _market_key(item["market"]),
         "question": item["market"].get("question"),
         "event_title": item["market"].get("event_title"),
         "primary_entity_key": item["market"].get("primary_entity_key"),
@@ -1455,6 +1466,12 @@ Radar
         },
         "report_text": report,
     }
+    if PAPER_TRADING_ENABLED:
+        paper_result = run_paper_cycle(markets, value_bets, generated_at_utc=utc_now)
+        report_payload["paper_trading"] = paper_result["summary"]
+        report_payload["report_text"] = paper_result["report_text"]
+        report = paper_result["report_text"]
+
     _write_report_artifacts(report_payload)
     send_message(report)
 
