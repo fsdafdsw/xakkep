@@ -168,7 +168,7 @@ class PaperTradingTests(unittest.TestCase):
             self.assertGreaterEqual(len(summary["idea_preview"]), 1)
             self.assertEqual(summary["idea_preview"][0]["question"], "Radar setup?")
             self.assertIn("Signal pool: 1 buy now | 1 watchlist | 1 radar", result["report_text"])
-            self.assertIn("Next best setups", result["report_text"])
+            self.assertIn("Next trade", result["report_text"])
 
 
 if __name__ == "__main__":

@@ -181,6 +181,13 @@ def _preview_action_label(trade_type):
     }.get(trade_type, "Watch only")
 
 
+def _format_preview_line(idx, row):
+    return (
+        f"{idx}. {row['question']} | {_preview_action_label(row.get('trade_type'))} | "
+        f"{row['verdict']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | {row['lane_label']}"
+    )
+
+
 def _preview_priority(row):
     trade_type = str(row.get("trade_type") or "")
     verdict = str(row.get("verdict") or "")
@@ -521,15 +528,23 @@ def _format_report(summary):
     else:
         lines.append("none")
 
-    lines.extend(["", "Next best setups"])
+    lines.extend(["", "Next trade"])
     preview_rows = summary.get("idea_preview") or []
     if preview_rows:
-        for idx, row in enumerate(preview_rows, start=1):
-            lines.append(
-                f"{idx}. {row['question']} | {_preview_action_label(row.get('trade_type'))} | {row['verdict']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | {row['lane_label']}"
-            )
-            if row.get("link"):
-                lines.append(f"   Link: {row['link']}")
+        top_row = preview_rows[0]
+        lines.append(_format_preview_line(1, top_row))
+        if top_row.get("link"):
+            lines.append(f"   Link: {top_row['link']}")
+
+        backup_rows = preview_rows[1:3]
+        lines.extend(["", "Backups"])
+        if backup_rows:
+            for idx, row in enumerate(backup_rows, start=1):
+                lines.append(_format_preview_line(idx, row))
+                if row.get("link"):
+                    lines.append(f"   Link: {row['link']}")
+        else:
+            lines.append("none")
     else:
         lines.append("none")
 
