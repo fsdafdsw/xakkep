@@ -166,14 +166,6 @@ def _position_line(position, mark_price=None, unrealized_pnl=None):
     return " | ".join(parts)
 
 
-def _preview_bucket_label(bucket):
-    return {
-        "buy_now": "Buy now",
-        "watchlist": "Watchlist",
-        "radar": "Radar",
-    }.get(bucket, "Idea")
-
-
 def _preview_verdict_label(candidate):
     verdict = str(candidate.get("repricing_verdict") or "").strip()
     if not verdict:
@@ -181,15 +173,45 @@ def _preview_verdict_label(candidate):
     return verdict.replace("_", " ")
 
 
-def _build_idea_preview(buy_candidates, best_watchlist, radar_candidates, *, excluded_links=None):
+def _preview_action_label(trade_type):
+    return {
+        "core": "Could buy now",
+        "scout": "Likely scout",
+        "monitor": "Watch only",
+    }.get(trade_type, "Watch only")
+
+
+def _preview_priority(row):
+    trade_type = str(row.get("trade_type") or "")
+    verdict = str(row.get("verdict") or "")
+    return (
+        -(1 if trade_type == "core" else 0),
+        -(1 if trade_type == "scout" else 0),
+        -(1 if verdict == "watch high upside" else 0),
+        -(row.get("watch_score") or 0.0),
+        -(row.get("repricing_score") or 0.0),
+        -(row.get("lane_prior") or 0.0),
+        -(row.get("confidence") or 0.0),
+    )
+
+
+def _build_idea_preview(
+    buy_candidates,
+    eligible_scout_candidates,
+    best_watchlist,
+    radar_candidates,
+    *,
+    excluded_links=None,
+):
     rows = []
     seen = set()
     blocked = {link for link in (excluded_links or set()) if link}
 
-    for bucket, candidates in (
-        ("buy_now", buy_candidates or []),
-        ("watchlist", best_watchlist or []),
-        ("radar", radar_candidates or []),
+    for trade_type, bucket, candidates in (
+        ("core", "buy_now", buy_candidates or []),
+        ("scout", "watchlist", eligible_scout_candidates or []),
+        ("monitor", "watchlist", best_watchlist or []),
+        ("monitor", "radar", radar_candidates or []),
     ):
         for candidate in candidates:
             link = candidate.get("link")
@@ -199,19 +221,23 @@ def _build_idea_preview(buy_candidates, best_watchlist, radar_candidates, *, exc
             rows.append(
                 {
                     "bucket": bucket,
+                    "trade_type": trade_type,
                     "question": candidate.get("question") or "Unknown market",
                     "selected_outcome": candidate.get("selected_outcome") or "outcome",
                     "entry_price": safe_float(candidate.get("entry"), default=0.0),
                     "verdict": _preview_verdict_label(candidate),
                     "lane_label": candidate.get("repricing_lane_label") or candidate.get("repricing_lane_key") or "repricing lane",
                     "link": link,
+                    "watch_score": safe_float(candidate.get("repricing_watch_score"), default=0.0),
+                    "repricing_score": safe_float(candidate.get("repricing_score"), default=0.0),
+                    "lane_prior": safe_float(candidate.get("repricing_lane_prior"), default=0.0),
+                    "confidence": safe_float(candidate.get("confidence"), default=0.0),
                 }
             )
             seen.add(dedupe_key)
-            if len(rows) >= PAPER_REPORT_MAX_IDEAS:
-                return rows
 
-    return rows
+    rows.sort(key=_preview_priority)
+    return rows[:PAPER_REPORT_MAX_IDEAS]
 
 
 def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
@@ -495,12 +521,12 @@ def _format_report(summary):
     else:
         lines.append("none")
 
-    lines.extend(["", "Ideas right now"])
+    lines.extend(["", "Next best setups"])
     preview_rows = summary.get("idea_preview") or []
     if preview_rows:
         for idx, row in enumerate(preview_rows, start=1):
             lines.append(
-                f"{idx}. {row['question']} | {_preview_bucket_label(row.get('bucket'))} | {row['verdict']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | {row['lane_label']}"
+                f"{idx}. {row['question']} | {_preview_action_label(row.get('trade_type'))} | {row['verdict']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | {row['lane_label']}"
             )
             if row.get("link"):
                 lines.append(f"   Link: {row['link']}")
@@ -523,7 +549,7 @@ def _daily_stop_hit(state, snapshot):
     return drawdown >= PAPER_DAILY_STOP_LOSS_USD, drawdown
 
 
-def _eligible_scout_candidates(candidates):
+def _eligible_scout_candidates(candidates, *, limit=True):
     if not PAPER_SCOUT_ENABLED:
         return []
 
@@ -573,7 +599,9 @@ def _eligible_scout_candidates(candidates):
             -(row.get("confidence") or 0.0),
         )
     )
-    return rows[:PAPER_SCOUT_MAX_PER_RUN]
+    if limit:
+        return rows[:PAPER_SCOUT_MAX_PER_RUN]
+    return rows
 
 
 def run_paper_cycle(
@@ -601,7 +629,8 @@ def run_paper_cycle(
     opened_positions = []
     if not daily_stop_hit:
         scout_pool = scout_candidates if scout_candidates is not None else best_watchlist
-        for trade_mode, rows in (("core", buy_candidates), ("scout", _eligible_scout_candidates(scout_pool))):
+        eligible_scout_rows = _eligible_scout_candidates(scout_pool)
+        for trade_mode, rows in (("core", buy_candidates), ("scout", eligible_scout_rows)):
             for candidate in rows:
                 position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
                 if position:
@@ -619,8 +648,10 @@ def run_paper_cycle(
 
     snapshot = _state_snapshot(state)
     open_links = {row.get("link") for row in snapshot["open_positions"] if row.get("link")}
+    preview_scout_rows = _eligible_scout_candidates(scout_pool, limit=False) if not daily_stop_hit else []
     idea_preview = _build_idea_preview(
         buy_candidates,
+        preview_scout_rows,
         best_watchlist,
         radar_candidates,
         excluded_links=open_links,
