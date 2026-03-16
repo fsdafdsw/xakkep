@@ -92,6 +92,27 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(len(summary["opened"]), 1)
             self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
 
+    def test_opens_scout_trade_from_global_high_upside_lane(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scout = _candidate(0.12, stake=0.25)
+            scout["repricing_verdict"] = "watch_high_upside"
+            scout["repricing_lane_key"] = "diplomacy_ceasefire"
+            scout["repricing_lane_label"] = "Ceasefire lane"
+            scout["repricing_watch_score"] = 0.79
+            scout["repricing_attention_gap"] = 0.42
+            scout["repricing_lane_prior"] = 0.68
+            scout["confidence"] = 0.78
+            result = run_paper_cycle(
+                [_market(0.12)],
+                [],
+                scout_candidates=[scout],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+
     def test_opens_scout_trade_from_strong_radar_buy_now(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.09, stake=0.25)

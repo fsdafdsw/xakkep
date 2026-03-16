@@ -22,7 +22,9 @@ from config import (
     PAPER_SCOUT_LANES,
     PAPER_SCOUT_MAX_ENTRY_PRICE,
     PAPER_SCOUT_MAX_PER_RUN,
+    PAPER_SCOUT_MIN_CONFIDENCE,
     PAPER_SCOUT_MIN_ATTENTION_GAP,
+    PAPER_SCOUT_MIN_LANE_PRIOR,
     PAPER_SCOUT_MIN_WATCH_SCORE,
     PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
@@ -581,6 +583,7 @@ def _eligible_scout_candidates(candidates, *, limit=True):
         score = safe_float(candidate.get("repricing_score"), default=0.0)
         attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
         confidence = safe_float(candidate.get("confidence"), default=0.0)
+        lane_prior = safe_float(candidate.get("repricing_lane_prior"), default=0.0)
         is_watch_lane = lane_key in PAPER_SCOUT_LANES
         is_radar_buy = (
             PAPER_RADAR_SCOUT_ENABLED
@@ -590,7 +593,11 @@ def _eligible_scout_candidates(candidates, *, limit=True):
             and attention_gap >= PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP
             and entry <= PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE
         )
-        is_lane_high_upside = is_watch_lane and verdict == "watch_high_upside"
+        is_lane_high_upside = (
+            is_watch_lane
+            and verdict == "watch_high_upside"
+            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
+        )
         is_lane_strong_watch = (
             is_watch_lane
             and verdict == "watch"
@@ -598,7 +605,15 @@ def _eligible_scout_candidates(candidates, *, limit=True):
             and attention_gap >= PAPER_SCOUT_MIN_ATTENTION_GAP
             and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
         )
-        if not (is_lane_high_upside or is_lane_strong_watch or is_radar_buy):
+        is_global_high_upside = (
+            verdict == "watch_high_upside"
+            and watch_score >= PAPER_SCOUT_MIN_WATCH_SCORE
+            and attention_gap >= PAPER_SCOUT_MIN_ATTENTION_GAP
+            and confidence >= PAPER_SCOUT_MIN_CONFIDENCE
+            and lane_prior >= PAPER_SCOUT_MIN_LANE_PRIOR
+            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
+        )
+        if not (is_lane_high_upside or is_lane_strong_watch or is_global_high_upside or is_radar_buy):
             continue
         rows.append(candidate)
         if link:
@@ -609,6 +624,7 @@ def _eligible_scout_candidates(candidates, *, limit=True):
             -(1 if str(row.get("repricing_verdict") or "") == "buy_now" else 0),
             -(row.get("repricing_watch_score") or 0.0),
             -(row.get("repricing_score") or 0.0),
+            -(row.get("repricing_lane_prior") or 0.0),
             -(row.get("repricing_optionality_score") or 0.0),
             -(row.get("repricing_attention_gap") or 0.0),
             -(row.get("confidence") or 0.0),
