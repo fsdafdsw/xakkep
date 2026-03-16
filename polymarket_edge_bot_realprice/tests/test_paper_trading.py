@@ -131,6 +131,45 @@ class PaperTradingTests(unittest.TestCase):
             summary = result["summary"]
             self.assertEqual(len(summary["opened"]), 0)
 
+    def test_summary_includes_signal_counts_and_preview_rows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            buy = _candidate(0.10)
+            watch = _candidate(0.11, stake=0.25)
+            watch["market_id"] = "market-2"
+            watch["event_slug"] = "market-2"
+            watch["market_key"] = "market-2|token-2"
+            watch["selected_token_id"] = "token-2"
+            watch["link"] = "https://polymarket.com/event/market-2?tid=token-2"
+            watch["question"] = "Watch setup?"
+            watch["repricing_verdict"] = "watch_high_upside"
+            watch["repricing_lane_key"] = "diplomacy_talk_call"
+            watch["repricing_lane_label"] = "Talk / call lane"
+            radar = _candidate(0.12, stake=0.25)
+            radar["market_id"] = "market-3"
+            radar["event_slug"] = "market-3"
+            radar["market_key"] = "market-3|token-3"
+            radar["selected_token_id"] = "token-3"
+            radar["link"] = "https://polymarket.com/event/market-3?tid=token-3"
+            radar["question"] = "Radar setup?"
+            radar["repricing_lane_key"] = "generic_repricing"
+            radar["repricing_lane_label"] = "Generic repricing"
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [buy],
+                best_watchlist=[watch],
+                radar_candidates=[radar],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(summary["buy_now_count"], 1)
+            self.assertEqual(summary["watchlist_count"], 1)
+            self.assertEqual(summary["radar_count"], 1)
+            self.assertGreaterEqual(len(summary["idea_preview"]), 1)
+            self.assertEqual(summary["idea_preview"][0]["question"], "Radar setup?")
+            self.assertIn("Signal pool: 1 buy now | 1 watchlist | 1 radar", result["report_text"])
+            self.assertIn("Ideas right now", result["report_text"])
+
 
 if __name__ == "__main__":
     unittest.main()

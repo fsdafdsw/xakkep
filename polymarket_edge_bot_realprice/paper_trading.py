@@ -10,6 +10,7 @@ from config import (
     PAPER_MAX_BET_USD,
     PAPER_MAX_OPEN_POSITIONS,
     PAPER_MIN_TRADE_USD,
+    PAPER_REPORT_MAX_IDEAS,
     PAPER_REENTRY_COOLDOWN_MINUTES,
     PAPER_RADAR_SCOUT_ENABLED,
     PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE,
@@ -163,6 +164,54 @@ def _position_line(position, mark_price=None, unrealized_pnl=None):
         parts.append(f"PnL {sign}${unrealized_pnl:.2f}")
     parts.append(lane)
     return " | ".join(parts)
+
+
+def _preview_bucket_label(bucket):
+    return {
+        "buy_now": "Buy now",
+        "watchlist": "Watchlist",
+        "radar": "Radar",
+    }.get(bucket, "Idea")
+
+
+def _preview_verdict_label(candidate):
+    verdict = str(candidate.get("repricing_verdict") or "").strip()
+    if not verdict:
+        return "idea"
+    return verdict.replace("_", " ")
+
+
+def _build_idea_preview(buy_candidates, best_watchlist, radar_candidates, *, excluded_links=None):
+    rows = []
+    seen = set()
+    blocked = {link for link in (excluded_links or set()) if link}
+
+    for bucket, candidates in (
+        ("buy_now", buy_candidates or []),
+        ("watchlist", best_watchlist or []),
+        ("radar", radar_candidates or []),
+    ):
+        for candidate in candidates:
+            link = candidate.get("link")
+            dedupe_key = link or candidate.get("market_key") or candidate.get("question")
+            if not dedupe_key or dedupe_key in seen or link in blocked:
+                continue
+            rows.append(
+                {
+                    "bucket": bucket,
+                    "question": candidate.get("question") or "Unknown market",
+                    "selected_outcome": candidate.get("selected_outcome") or "outcome",
+                    "entry_price": safe_float(candidate.get("entry"), default=0.0),
+                    "verdict": _preview_verdict_label(candidate),
+                    "lane_label": candidate.get("repricing_lane_label") or candidate.get("repricing_lane_key") or "repricing lane",
+                    "link": link,
+                }
+            )
+            seen.add(dedupe_key)
+            if len(rows) >= PAPER_REPORT_MAX_IDEAS:
+                return rows
+
+    return rows
 
 
 def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
@@ -405,6 +454,7 @@ def _format_report(summary):
         f"Bank: ${start_bank:.2f} -> ${equity:.2f} ({sign}{change_pct:.2f}%)",
         f"Cash: ${summary['cash_usd']:.2f} | Open positions: {summary['open_position_count']} | Realized: {realized_sign}${abs(realized):.2f} | Unrealized: {unrealized_sign}${abs(unrealized):.2f}",
         f"Daily guard: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Drawdown today ${summary.get('daily_drawdown_usd', 0.0):.2f} / ${PAPER_DAILY_STOP_LOSS_USD:.2f}",
+        f"Signal pool: {summary.get('buy_now_count', 0)} buy now | {summary.get('watchlist_count', 0)} watchlist | {summary.get('radar_count', 0)} radar",
         "",
         "Opened this run",
     ]
@@ -439,6 +489,18 @@ def _format_report(summary):
             sign = "+" if row["unrealized_pnl_usd"] >= 0 else "-"
             lines.append(
                 f"{idx}. {row['question']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | Mark {row['mark_price']:.3f} | PnL {sign}${abs(row['unrealized_pnl_usd']):.2f} | {row.get('trade_mode') or 'core'}"
+            )
+            if row.get("link"):
+                lines.append(f"   Link: {row['link']}")
+    else:
+        lines.append("none")
+
+    lines.extend(["", "Ideas right now"])
+    preview_rows = summary.get("idea_preview") or []
+    if preview_rows:
+        for idx, row in enumerate(preview_rows, start=1):
+            lines.append(
+                f"{idx}. {row['question']} | {_preview_bucket_label(row.get('bucket'))} | {row['verdict']} | BUY {row['selected_outcome']} @ {row['entry_price']:.3f} | {row['lane_label']}"
             )
             if row.get("link"):
                 lines.append(f"   Link: {row['link']}")
@@ -514,7 +576,16 @@ def _eligible_scout_candidates(candidates):
     return rows[:PAPER_SCOUT_MAX_PER_RUN]
 
 
-def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, scout_candidates=None, state_dir=None, generated_at_utc=None):
+def run_paper_cycle(
+    markets,
+    buy_candidates,
+    *,
+    best_watchlist=None,
+    scout_candidates=None,
+    radar_candidates=None,
+    state_dir=None,
+    generated_at_utc=None,
+):
     now_dt = _utc_now()
     state = load_state(state_dir=state_dir)
     state["run_count"] = safe_int(state.get("run_count"), default=0) + 1
@@ -547,6 +618,13 @@ def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, scout_candi
                     )
 
     snapshot = _state_snapshot(state)
+    open_links = {row.get("link") for row in snapshot["open_positions"] if row.get("link")}
+    idea_preview = _build_idea_preview(
+        buy_candidates,
+        best_watchlist,
+        radar_candidates,
+        excluded_links=open_links,
+    )
     summary = {
         "generated_at_utc": generated_at_utc or _iso_utc(now_dt),
         "initial_bankroll_usd": safe_float(state.get("initial_bankroll_usd"), default=PAPER_INITIAL_BANKROLL_USD),
@@ -562,6 +640,10 @@ def run_paper_cycle(markets, buy_candidates, *, best_watchlist=None, scout_candi
         "daily_stop_hit": daily_stop_hit,
         "daily_drawdown_usd": daily_drawdown,
         "daily_anchor_equity_usd": safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"]),
+        "buy_now_count": len(buy_candidates or []),
+        "watchlist_count": len(best_watchlist or []),
+        "radar_count": len(radar_candidates or []),
+        "idea_preview": idea_preview,
     }
 
     save_state(state, summary=summary, state_dir=state_dir)

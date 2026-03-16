@@ -861,17 +861,17 @@ def run():
         reverse=True,
     )
     watch_event_usage = defaultdict(int)
-    watchlist_limited = []
+    watchlist_pool = []
     for candidate in watchlist_sorted:
         if watch_event_usage[candidate["event_key"]] >= MAX_SIGNALS_PER_EVENT:
             continue
         watch_event_usage[candidate["event_key"]] += 1
-        watchlist_limited.append(candidate)
-        if len(watchlist_limited) >= MAX_WATCHLIST:
+        watchlist_pool.append(candidate)
+        if len(watchlist_pool) >= MAX_WATCH_CANDIDATE_POOL:
             break
 
     value_bets = value_bets_limited
-    watchlist = watchlist_limited
+    watchlist = watchlist_pool
 
     diagnostic_candidates = sorted(
         rejected_candidates,
@@ -993,6 +993,7 @@ Radar
             value_bets,
             best_watchlist=best_watchlist,
             scout_candidates=paper_scout_candidates,
+            radar_candidates=geopolitical_radar_core,
             generated_at_utc=utc_now,
         )
         report_payload["paper_trading"] = paper_result["summary"]
