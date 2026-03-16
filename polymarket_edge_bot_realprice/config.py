@@ -164,7 +164,7 @@ BOT_SOURCE = os.getenv("BOT_SOURCE", "unknown")
 
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", "reports"))
 PAPER_TRADING_ENABLED = os.getenv("PAPER_TRADING_ENABLED", "false").lower() == "true"
-PAPER_INITIAL_BANKROLL_USD = float(os.getenv("PAPER_INITIAL_BANKROLL_USD", "10"))
+PAPER_INITIAL_BANKROLL_USD = float(os.getenv("PAPER_INITIAL_BANKROLL_USD", "30"))
 PAPER_MAX_BET_USD = float(os.getenv("PAPER_MAX_BET_USD", "1.5"))
 PAPER_MIN_TRADE_USD = float(os.getenv("PAPER_MIN_TRADE_USD", "0.35"))
 PAPER_MAX_OPEN_POSITIONS = int(os.getenv("PAPER_MAX_OPEN_POSITIONS", "4"))

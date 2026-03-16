@@ -1,8 +1,8 @@
 {
   "generated_at_utc": "2026-03-16 12:07:58 UTC",
-  "initial_bankroll_usd": 10.0,
-  "cash_usd": 9.556590142065142,
-  "equity_usd": 9.999628655578656,
+  "initial_bankroll_usd": 30.0,
+  "cash_usd": 29.55659014206514,
+  "equity_usd": 29.999628655578654,
   "realized_pnl_usd": -0.08745512820512813,
   "unrealized_pnl_usd": 0.08708378378378384,
   "open_position_count": 1,
@@ -26,5 +26,5 @@
   "run_count": 38,
   "daily_stop_hit": false,
   "daily_drawdown_usd": -0.09136309771309925,
-  "daily_anchor_equity_usd": 9.908265557865557
+  "daily_anchor_equity_usd": 29.908265557865555
 }
