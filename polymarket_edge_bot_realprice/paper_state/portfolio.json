@@ -2,38 +2,9 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.95640044544612,
-  "realized_pnl_usd": -0.5545451427891724,
+  "cash_usd": 27.996260445446122,
+  "realized_pnl_usd": -0.9109101427891724,
   "positions": [
-    {
-      "position_id": "how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356:1773723023",
-      "market_key": "how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356",
-      "market_id": "678758",
-      "event_slug": "how-many-different-countries-will-israel-strike-in-2026",
-      "link": "https://polymarket.com/event/how-many-different-countries-will-israel-strike-in-2026?tid=96335319798300266587878383407639785375563587402719759663597159674985132849356",
-      "question": "Will Israel strike 15 or more countries in 2026?",
-      "selected_outcome": "Yes",
-      "entry_price": 0.035,
-      "shares": 9.999999999999998,
-      "stake_usd": 0.35,
-      "total_outlay_usd": 0.396225,
-      "opened_ts": 1773723023,
-      "opened_at_utc": "2026-03-17 04:50:23 UTC",
-      "action_family": "conflict",
-      "catalyst_type": "military_action",
-      "lane_key": "conflict_fast",
-      "lane_label": "Conflict fast lane",
-      "trade_mode": "scout",
-      "take_profit_price": 0.1,
-      "stop_loss_price": 0.028000000000000004,
-      "stop_activation_hours": 18.0,
-      "time_stop_days": 3.0,
-      "time_stop_ts": 1773982223,
-      "trailing_arm_pct": 0.25,
-      "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.035,
-      "last_mark_price": 0.005
-    },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660:1773745684",
       "market_key": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660",
@@ -61,7 +32,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.048,
-      "last_mark_price": 0.046
+      "last_mark_price": 0.044
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952:1773753846",
@@ -90,7 +61,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.043,
-      "last_mark_price": 0.043
+      "last_mark_price": 0.041
     },
     {
       "position_id": "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162:1773758389",
@@ -128,13 +99,15 @@
   "recently_closed": {
     "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660": 1773738290,
     "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
-    "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952": 1773748540
+    "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952": 1773748540,
+    "how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356": 1773788671
   },
   "recently_closed_theses": {
-    "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389
+    "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
+    "market:how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356": 1773788671
   },
   "daily_anchor_date": "2026-03-17",
   "daily_anchor_equity_usd": 29.442473874304845,
-  "run_count": 70,
-  "last_run_at_utc": "2026-03-17 22:33:03 UTC"
+  "run_count": 71,
+  "last_run_at_utc": "2026-03-17 23:04:31 UTC"
 }
