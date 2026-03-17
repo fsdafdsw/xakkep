@@ -515,6 +515,17 @@ def _format_signal(rank, candidate):
     return "\n".join(lines)
 
 
+def _paper_structure_selected(candidate):
+    if candidate.get("consistency_engine_supported"):
+        residual = candidate.get("consistency_residual")
+        try:
+            residual = float(residual)
+        except (TypeError, ValueError):
+            residual = 0.0
+        return bool(candidate.get("consistency_selected")) and residual > 0.0
+    return bool(candidate.get("thesis_surface_selected", True))
+
+
 def _simple_signal_bucket(net_edge, policy):
     if net_edge is None:
         return None
@@ -860,6 +871,8 @@ def run():
     value_bets_sorted = sorted(
         value_bets,
         key=lambda x: (
+            1 if x.get("consistency_selected") else 0,
+            x.get("consistency_residual") if x.get("consistency_residual") is not None else float("-inf"),
             1 if x.get("thesis_surface_selected", True) else 0,
             x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
@@ -895,6 +908,8 @@ def run():
     watchlist_sorted = sorted(
         watchlist,
         key=lambda x: (
+            1 if x.get("consistency_selected") else 0,
+            x.get("consistency_residual") if x.get("consistency_residual") is not None else float("-inf"),
             1 if x.get("thesis_surface_selected", True) else 0,
             x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
@@ -1041,12 +1056,10 @@ Radar
         "report_text": report,
     }
     if PAPER_TRADING_ENABLED:
-        paper_value_bets = [candidate for candidate in value_bets if candidate.get("thesis_surface_selected", True)]
-        paper_best_watchlist = [candidate for candidate in best_watchlist if candidate.get("thesis_surface_selected", True)]
-        paper_scout_candidates = [candidate for candidate in paper_scout_candidates if candidate.get("thesis_surface_selected", True)]
-        paper_geopolitical_radar = [
-            candidate for candidate in geopolitical_radar_core if candidate.get("thesis_surface_selected", True)
-        ]
+        paper_value_bets = [candidate for candidate in value_bets if _paper_structure_selected(candidate)]
+        paper_best_watchlist = [candidate for candidate in best_watchlist if _paper_structure_selected(candidate)]
+        paper_scout_candidates = [candidate for candidate in paper_scout_candidates if _paper_structure_selected(candidate)]
+        paper_geopolitical_radar = [candidate for candidate in geopolitical_radar_core if _paper_structure_selected(candidate)]
         paper_result = run_paper_cycle(
             markets,
             paper_value_bets,

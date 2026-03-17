@@ -25,6 +25,18 @@ def _is_geopolitical_radar_candidate(candidate):
     )
 
 
+def _consistency_sort_prefix(candidate):
+    residual = candidate.get("consistency_residual")
+    if residual is None:
+        residual = 0.0
+    return (
+        -(1 if candidate.get("consistency_selected") else 0),
+        -max(residual, 0.0),
+        -(1 if candidate.get("thesis_surface_selected", True) else 0),
+        -(candidate.get("thesis_surface_score") or 0.0),
+    )
+
+
 def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, excluded_links):
     merged = []
     seen = set()
@@ -46,6 +58,7 @@ def _build_geopolitical_radar(value_bets, watchlist, rejected_candidates, exclud
 
     merged.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_potential") or 0.0),
@@ -77,6 +90,7 @@ def _build_conflict_leaderboard(value_bets, watchlist, rejected_candidates):
             seen.add(link)
     conflict_rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_conflict_setup_score") or 0.0),
             -(x.get("repricing_conflict_urgency_score") or 0.0),
@@ -113,6 +127,7 @@ def _build_legal_catalyst_leaders(value_bets, watchlist, rejected_candidates):
             seen.add(link)
     legal_rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_release_legitimacy_score") or 0.0),
             -(x.get("repricing_release_subject_score") or 0.0),
@@ -145,6 +160,7 @@ def _build_release_watchlist(value_bets, watchlist, rejected_candidates):
             seen.add(link)
     release_rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_release_subject_score") or 0.0),
             -(x.get("repricing_release_legitimacy_score") or 0.0),
@@ -181,6 +197,7 @@ def _build_ceasefire_watchlist(value_bets, watchlist, rejected_candidates):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
@@ -219,6 +236,7 @@ def _build_talk_call_watchlist(value_bets, watchlist, rejected_candidates):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
             -(x.get("repricing_attention_gap") or 0.0),
@@ -267,6 +285,7 @@ def _build_meeting_watchlist(value_bets, watchlist, rejected_candidates):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_attention_gap") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
@@ -287,6 +306,7 @@ def _build_resume_talks_watchlist(value_bets, watchlist, rejected_candidates):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
             -(x.get("repricing_attention_gap") or 0.0),
@@ -328,6 +348,7 @@ def _build_hostage_negotiation_watchlist(value_bets, watchlist, rejected_candida
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_optionality_score") or 0.0),
@@ -360,6 +381,7 @@ def _build_release_buy_now(value_bets, watchlist, rejected_candidates):
             seen.add(link)
     release_rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(x.get("repricing_score") or 0.0),
             -(x.get("repricing_release_legitimacy_score") or 0.0),
             -(x.get("repricing_release_subject_score") or 0.0),
@@ -385,6 +407,7 @@ def _build_best_watchlist(*candidate_groups):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(1 if str(x.get("repricing_verdict") or "") == "watch_high_upside" else 0),
             -(x.get("repricing_watch_score") or 0.0),
             -(x.get("repricing_score") or 0.0),
@@ -412,6 +435,7 @@ def _build_paper_scout_candidates(*candidate_groups):
 
     rows.sort(
         key=lambda x: (
+            *_consistency_sort_prefix(x),
             -(1 if str(x.get("repricing_verdict") or "") == "buy_now" else 0),
             -(1 if str(x.get("repricing_verdict") or "") == "watch_high_upside" else 0),
             -(x.get("repricing_watch_score") or 0.0),
