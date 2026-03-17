@@ -60,8 +60,8 @@
       "time_stop_ts": 1774004884,
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.047,
-      "last_mark_price": 0.046
+      "max_mark_price": 0.048,
+      "last_mark_price": 0.048
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952:1773753846",
@@ -89,8 +89,8 @@
       "time_stop_ts": 1774013046,
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.034,
-      "last_mark_price": 0.032
+      "max_mark_price": 0.038,
+      "last_mark_price": 0.038
     },
     {
       "position_id": "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162:1773758389",
@@ -135,6 +135,6 @@
   },
   "daily_anchor_date": "2026-03-17",
   "daily_anchor_equity_usd": 29.442473874304845,
-  "run_count": 68,
-  "last_run_at_utc": "2026-03-17 21:06:26 UTC"
+  "run_count": 69,
+  "last_run_at_utc": "2026-03-17 21:53:28 UTC"
 }
