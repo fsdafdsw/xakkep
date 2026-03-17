@@ -245,6 +245,44 @@ class PaperTradingTests(unittest.TestCase):
             self.assertIn("Signal pool: 1 buy now | 1 watchlist | 1 radar", result["report_text"])
             self.assertIn("Next trade", result["report_text"])
 
+    def test_blocks_non_selected_consistency_candidate_in_ladder(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            blocked = _candidate(0.10)
+            blocked["question"] = "Blocked sibling?"
+            blocked["consistency_engine_supported"] = True
+            blocked["consistency_selected"] = False
+            blocked["consistency_residual"] = 0.05
+            blocked["consistency_bias"] = "underpriced_yes"
+
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [blocked],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["buy_now_count"], 0)
+
+    def test_opens_selected_consistency_candidate_in_ladder(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            selected = _candidate(0.10)
+            selected["question"] = "Selected sibling?"
+            selected["consistency_engine_supported"] = True
+            selected["consistency_selected"] = True
+            selected["consistency_residual"] = 0.05
+            selected["consistency_bias"] = "underpriced_yes"
+
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [selected],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["buy_now_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

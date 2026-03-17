@@ -208,6 +208,31 @@ def _preview_priority(row):
     )
 
 
+def _passes_consistency_execution_gate(candidate):
+    if not candidate:
+        return False
+
+    if not candidate.get("consistency_engine_supported"):
+        return True
+
+    residual = safe_float(candidate.get("consistency_residual"), default=0.0)
+    if residual <= 0.0:
+        return False
+
+    if candidate.get("consistency_selected"):
+        return True
+
+    return False
+
+
+def _filter_consistency_execution_candidates(candidates):
+    rows = []
+    for candidate in candidates or []:
+        if _passes_consistency_execution_gate(candidate):
+            rows.append(candidate)
+    return rows
+
+
 def _build_idea_preview(
     buy_candidates,
     eligible_scout_candidates,
@@ -232,6 +257,8 @@ def _build_idea_preview(
             link = candidate.get("link")
             dedupe_key = link or candidate.get("market_key") or candidate.get("question")
             if not dedupe_key or dedupe_key in seen or link in blocked:
+                continue
+            if not _passes_consistency_execution_gate(candidate):
                 continue
             if state is not None and now_ts is not None:
                 gate = can_open_thesis_trade(
@@ -265,6 +292,9 @@ def _build_idea_preview(
 
 
 def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
+    if not _passes_consistency_execution_gate(candidate):
+        return None
+
     if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
         return None
 
@@ -605,6 +635,8 @@ def _eligible_scout_candidates(candidates, *, limit=True):
     rows = []
     seen = set()
     for candidate in candidates or []:
+        if not _passes_consistency_execution_gate(candidate):
+            continue
         link = candidate.get("link")
         if link and link in seen:
             continue
@@ -689,11 +721,15 @@ def run_paper_cycle(
     _refresh_daily_anchor(state, post_close_snapshot, now_dt)
     daily_stop_hit, daily_drawdown = _daily_stop_hit(state, post_close_snapshot)
 
+    paper_buy_candidates = _filter_consistency_execution_candidates(buy_candidates)
+    paper_watchlist_candidates = _filter_consistency_execution_candidates(best_watchlist)
+    paper_scout_pool = _filter_consistency_execution_candidates(scout_candidates if scout_candidates is not None else best_watchlist)
+    paper_radar_candidates = _filter_consistency_execution_candidates(radar_candidates)
+
     opened_positions = []
     if not daily_stop_hit:
-        scout_pool = scout_candidates if scout_candidates is not None else best_watchlist
-        eligible_scout_rows = _eligible_scout_candidates(scout_pool)
-        for trade_mode, rows in (("core", buy_candidates), ("scout", eligible_scout_rows)):
+        eligible_scout_rows = _eligible_scout_candidates(paper_scout_pool)
+        for trade_mode, rows in (("core", paper_buy_candidates), ("scout", eligible_scout_rows)):
             for candidate in rows:
                 position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
                 if position:
@@ -711,12 +747,12 @@ def run_paper_cycle(
 
     snapshot = _state_snapshot(state)
     open_links = {row.get("link") for row in snapshot["open_positions"] if row.get("link")}
-    preview_scout_rows = _eligible_scout_candidates(scout_pool, limit=False) if not daily_stop_hit else []
+    preview_scout_rows = _eligible_scout_candidates(paper_scout_pool, limit=False) if not daily_stop_hit else []
     idea_preview = _build_idea_preview(
-        buy_candidates,
+        paper_buy_candidates,
         preview_scout_rows,
-        best_watchlist,
-        radar_candidates,
+        paper_watchlist_candidates,
+        paper_radar_candidates,
         state=state,
         now_ts=int(now_dt.timestamp()),
         excluded_links=open_links,
@@ -736,9 +772,9 @@ def run_paper_cycle(
         "daily_stop_hit": daily_stop_hit,
         "daily_drawdown_usd": daily_drawdown,
         "daily_anchor_equity_usd": safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"]),
-        "buy_now_count": len(buy_candidates or []),
-        "watchlist_count": len(best_watchlist or []),
-        "radar_count": len(radar_candidates or []),
+        "buy_now_count": len(paper_buy_candidates),
+        "watchlist_count": len(paper_watchlist_candidates),
+        "radar_count": len(paper_radar_candidates),
         "idea_preview": idea_preview,
     }
 
