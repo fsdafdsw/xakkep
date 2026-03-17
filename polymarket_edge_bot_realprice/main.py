@@ -22,6 +22,7 @@ from repricing_selector import score_repricing_signal
 from robust_signal import compute_robust_signal
 from report_sections import build_report_sections
 from scanner import fetch_markets
+from surface_router import annotate_surface_routes
 from strategy import evaluate_market
 from telegram import send_message
 from thesis_cluster import annotate_thesis_clusters
@@ -313,6 +314,13 @@ def _build_candidate(item, score_policy):
         "thesis_dimension_type": None,
         "thesis_dimension_label": None,
         "thesis_dimension_value": None,
+        "thesis_surface_selected": True,
+        "thesis_surface_score": None,
+        "thesis_surface_fit_price": None,
+        "thesis_surface_interp_price": None,
+        "thesis_surface_residual": 0.0,
+        "thesis_surface_monotonic_residual": 0.0,
+        "thesis_surface_rank": 1,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -828,10 +836,13 @@ def run():
 
     thesis_clusters = annotate_thesis_clusters(value_bets, watchlist, rejected_candidates)
     multi_market_theses = [cluster for cluster in thesis_clusters if cluster.get("thesis_cluster_size", 0) > 1]
+    surface_routes = annotate_surface_routes(value_bets, watchlist, rejected_candidates)
 
     value_bets_sorted = sorted(
         value_bets,
         key=lambda x: (
+            1 if x.get("thesis_surface_selected", True) else 0,
+            x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
             x["net_edge_lcb"],
             x["robustness_score"],
@@ -865,6 +876,8 @@ def run():
     watchlist_sorted = sorted(
         watchlist,
         key=lambda x: (
+            1 if x.get("thesis_surface_selected", True) else 0,
+            x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
             x["net_edge_lcb"],
             x["robustness_score"],
@@ -955,6 +968,8 @@ Radar
         "thesis_cluster_count": len(thesis_clusters),
         "multi_market_thesis_count": len(multi_market_theses),
         "multi_market_theses": multi_market_theses[:20],
+        "surface_route_count": len(surface_routes),
+        "surface_routes": surface_routes[:20],
         "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
         "scanned": len(markets),
         "passed_base_filters": len(accepted),
@@ -1003,12 +1018,18 @@ Radar
         "report_text": report,
     }
     if PAPER_TRADING_ENABLED:
+        paper_value_bets = [candidate for candidate in value_bets if candidate.get("thesis_surface_selected", True)]
+        paper_best_watchlist = [candidate for candidate in best_watchlist if candidate.get("thesis_surface_selected", True)]
+        paper_scout_candidates = [candidate for candidate in paper_scout_candidates if candidate.get("thesis_surface_selected", True)]
+        paper_geopolitical_radar = [
+            candidate for candidate in geopolitical_radar_core if candidate.get("thesis_surface_selected", True)
+        ]
         paper_result = run_paper_cycle(
             markets,
-            value_bets,
-            best_watchlist=best_watchlist,
+            paper_value_bets,
+            best_watchlist=paper_best_watchlist,
             scout_candidates=paper_scout_candidates,
-            radar_candidates=geopolitical_radar_core,
+            radar_candidates=paper_geopolitical_radar,
             generated_at_utc=utc_now,
         )
         report_payload["paper_trading"] = paper_result["summary"]
