@@ -12,6 +12,7 @@ from config import (
     PAPER_MIN_TRADE_USD,
     PAPER_REPORT_MAX_IDEAS,
     PAPER_REENTRY_COOLDOWN_MINUTES,
+    PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
     PAPER_RADAR_SCOUT_ENABLED,
     PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE,
     PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP,
@@ -31,6 +32,7 @@ from config import (
     TAKER_FEE_BPS,
 )
 from exit_policy import live_exit_plan
+from thesis_trade_policy import can_open_thesis_trade, register_closed_thesis, thesis_identity
 from utils import safe_float, safe_int
 
 
@@ -82,6 +84,7 @@ def _default_state():
         "realized_pnl_usd": 0.0,
         "positions": [],
         "recently_closed": {},
+        "recently_closed_theses": {},
         "daily_anchor_date": _utc_now().strftime("%Y-%m-%d"),
         "daily_anchor_equity_usd": PAPER_INITIAL_BANKROLL_USD,
         "run_count": 0,
@@ -115,6 +118,7 @@ def load_state(state_dir=None):
     default.update(state if isinstance(state, dict) else {})
     default["positions"] = list(default.get("positions") or [])
     default["recently_closed"] = dict(default.get("recently_closed") or {})
+    default["recently_closed_theses"] = dict(default.get("recently_closed_theses") or {})
     return default
 
 
@@ -210,6 +214,8 @@ def _build_idea_preview(
     best_watchlist,
     radar_candidates,
     *,
+    state=None,
+    now_ts=None,
     excluded_links=None,
 ):
     rows = []
@@ -227,6 +233,15 @@ def _build_idea_preview(
             dedupe_key = link or candidate.get("market_key") or candidate.get("question")
             if not dedupe_key or dedupe_key in seen or link in blocked:
                 continue
+            if state is not None and now_ts is not None:
+                gate = can_open_thesis_trade(
+                    state,
+                    candidate,
+                    now_ts=now_ts,
+                    thesis_cooldown_minutes=PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
+                )
+                if not gate["allowed"]:
+                    continue
             rows.append(
                 {
                     "bucket": bucket,
@@ -261,6 +276,15 @@ def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
         return None
 
     if any(position.get("market_key") == market_key for position in state["positions"]):
+        return None
+
+    thesis_gate = can_open_thesis_trade(
+        state,
+        candidate,
+        now_ts=now_ts,
+        thesis_cooldown_minutes=PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
+    )
+    if not thesis_gate["allowed"]:
         return None
 
     entry_price = safe_float(candidate.get("entry"))
@@ -313,6 +337,9 @@ def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
         "catalyst_type": candidate.get("catalyst_type"),
         "lane_key": candidate.get("repricing_lane_key"),
         "lane_label": candidate.get("repricing_lane_label"),
+        "thesis_id": thesis_gate["thesis_id"],
+        "thesis_type": candidate.get("thesis_type"),
+        "thesis_cluster_size": candidate.get("thesis_cluster_size"),
         "trade_mode": trade_mode,
         "take_profit_price": safe_float(exit_plan.get("take_profit_price")),
         "stop_loss_price": safe_float(exit_plan.get("stop_loss_price")),
@@ -339,6 +366,7 @@ def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
             "total_outlay_usd": total_outlay,
             "lane_key": position.get("lane_key"),
             "catalyst_type": position.get("catalyst_type"),
+            "thesis_id": position.get("thesis_id"),
             "trade_mode": trade_mode,
             "link": position.get("link"),
         }
@@ -352,6 +380,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
     state["cash_usd"] = safe_float(state.get("cash_usd"), default=0.0) + proceeds
     state["realized_pnl_usd"] = safe_float(state.get("realized_pnl_usd"), default=0.0) + pnl
     state.setdefault("recently_closed", {})[position["market_key"]] = int(now_dt.timestamp())
+    thesis_id = register_closed_thesis(state, position, closed_ts=int(now_dt.timestamp()))
     ledger_rows.append(
         {
             "ts_utc": _iso_utc(now_dt),
@@ -364,6 +393,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
             "reason": reason,
             "lane_key": position.get("lane_key"),
             "catalyst_type": position.get("catalyst_type"),
+            "thesis_id": thesis_id,
             "trade_mode": position.get("trade_mode"),
             "link": position.get("link"),
         }
@@ -376,6 +406,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
         "reason": reason,
         "lane_label": position.get("lane_label") or position.get("lane_key"),
         "link": position.get("link"),
+        "thesis_id": thesis_id,
         "trade_mode": position.get("trade_mode"),
     }
 
@@ -453,6 +484,7 @@ def _state_snapshot(state):
                 "opened_at_utc": position.get("opened_at_utc"),
                 "max_mark_price": safe_float(position.get("max_mark_price"), default=mark),
                 "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
+                "thesis_id": position.get("thesis_id") or thesis_identity(position),
                 "trade_mode": position.get("trade_mode"),
             }
         )
@@ -685,6 +717,8 @@ def run_paper_cycle(
         preview_scout_rows,
         best_watchlist,
         radar_candidates,
+        state=state,
+        now_ts=int(now_dt.timestamp()),
         excluded_links=open_links,
     )
     summary = {

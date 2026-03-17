@@ -35,6 +35,9 @@ def _candidate(entry, stake=50.0):
         "repricing_verdict": "buy_now",
         "repricing_lane_key": "conflict_fast",
         "repricing_lane_label": "Conflict fast lane",
+        "thesis_id": "threshold_ladder:test",
+        "thesis_type": "threshold_ladder",
+        "thesis_cluster_size": 2,
     }
 
 
@@ -72,6 +75,55 @@ class PaperTradingTests(unittest.TestCase):
             summary = result["summary"]
             self.assertEqual(len(summary["opened"]), 1)
             self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+
+    def test_blocks_second_open_in_same_thesis(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = _candidate(0.10)
+            second = _candidate(0.11)
+            second["market_id"] = "market-2"
+            second["event_slug"] = "market-2"
+            second["market_key"] = "market-2|token-2"
+            second["selected_token_id"] = "token-2"
+            second["link"] = "https://polymarket.com/event/market-2?tid=token-2"
+            second["question"] = "Sibling market?"
+            second["thesis_id"] = first["thesis_id"]
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [first, second],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["open_position_count"], 1)
+
+    def test_blocks_reentry_into_same_thesis_after_close(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = _candidate(0.10)
+            run_paper_cycle(
+                [_market(0.10)],
+                [first],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            sibling = _candidate(0.12)
+            sibling["market_id"] = "market-2"
+            sibling["event_slug"] = "market-2"
+            sibling["market_key"] = "market-2|token-2"
+            sibling["selected_token_id"] = "token-2"
+            sibling["link"] = "https://polymarket.com/event/market-2?tid=token-2"
+            sibling["question"] = "Sibling market?"
+            sibling["thesis_id"] = first["thesis_id"]
+            result = run_paper_cycle(
+                [_market(0.20, best_bid=0.20)],
+                [sibling],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:05:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["closed"]), 1)
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["open_position_count"], 0)
 
     def test_opens_scout_trade_from_strong_watch_lane(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -165,6 +217,7 @@ class PaperTradingTests(unittest.TestCase):
             watch["repricing_verdict"] = "watch_high_upside"
             watch["repricing_lane_key"] = "diplomacy_talk_call"
             watch["repricing_lane_label"] = "Talk / call lane"
+            watch["thesis_id"] = "watch_thesis:test"
             radar = _candidate(0.12, stake=0.25)
             radar["market_id"] = "market-3"
             radar["event_slug"] = "market-3"
@@ -174,6 +227,7 @@ class PaperTradingTests(unittest.TestCase):
             radar["question"] = "Radar setup?"
             radar["repricing_lane_key"] = "generic_repricing"
             radar["repricing_lane_label"] = "Generic repricing"
+            radar["thesis_id"] = "radar_thesis:test"
             result = run_paper_cycle(
                 [_market(0.10)],
                 [buy],
