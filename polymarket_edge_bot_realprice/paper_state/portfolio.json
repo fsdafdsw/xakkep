@@ -2,7 +2,7 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 28.63421079263343,
+  "cash_usd": 28.26754461616284,
   "realized_pnl_usd": -0.24933168125071092,
   "positions": [
     {
@@ -32,7 +32,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.081,
-      "last_mark_price": 0.029
+      "last_mark_price": 0.032
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971:1773692490",
@@ -91,6 +91,35 @@
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.035,
       "last_mark_price": 0.014
+    },
+    {
+      "position_id": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660:1773745684",
+      "market_key": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660",
+      "market_id": "678745",
+      "event_slug": "how-many-different-countries-will-israel-strike-in-2026",
+      "link": "https://polymarket.com/event/how-many-different-countries-will-israel-strike-in-2026?tid=77252905361947762994754712299237712134154193959286026702226725255663067981660",
+      "question": "Will Israel strike 2 countries in 2026?",
+      "selected_outcome": "Yes",
+      "entry_price": 0.034,
+      "shares": 10.294117647058822,
+      "stake_usd": 0.35,
+      "total_outlay_usd": 0.36666617647058825,
+      "opened_ts": 1773745684,
+      "opened_at_utc": "2026-03-17 11:08:04 UTC",
+      "action_family": "conflict",
+      "catalyst_type": "military_action",
+      "lane_key": "conflict_fast",
+      "lane_label": "Conflict fast lane",
+      "trade_mode": "scout",
+      "take_profit_price": 0.1,
+      "stop_loss_price": 0.027200000000000002,
+      "stop_activation_hours": 18.0,
+      "time_stop_days": 3.0,
+      "time_stop_ts": 1774004884,
+      "trailing_arm_pct": 0.25,
+      "trailing_drawdown_pct": 0.18,
+      "max_mark_price": 0.034,
+      "last_mark_price": 0.034
     }
   ],
   "recently_closed": {
@@ -99,6 +128,6 @@
   },
   "daily_anchor_date": "2026-03-17",
   "daily_anchor_equity_usd": 29.442473874304845,
-  "run_count": 57,
-  "last_run_at_utc": "2026-03-17 10:07:08 UTC"
+  "run_count": 58,
+  "last_run_at_utc": "2026-03-17 11:08:04 UTC"
 }
