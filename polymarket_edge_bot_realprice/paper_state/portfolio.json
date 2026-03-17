@@ -32,7 +32,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.067,
-      "last_mark_price": 0.044
+      "last_mark_price": 0.046
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952:1773682325",
@@ -61,7 +61,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.081,
-      "last_mark_price": 0.037
+      "last_mark_price": 0.04
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971:1773692490",
@@ -128,6 +128,6 @@
   },
   "daily_anchor_date": "2026-03-17",
   "daily_anchor_equity_usd": 29.442473874304845,
-  "run_count": 54,
-  "last_run_at_utc": "2026-03-17 07:01:23 UTC"
+  "run_count": 55,
+  "last_run_at_utc": "2026-03-17 08:00:43 UTC"
 }
