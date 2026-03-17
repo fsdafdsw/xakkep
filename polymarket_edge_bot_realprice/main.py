@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from config import *
+from consistency_engine import annotate_consistency_engine
 from consistency_graph import annotate_consistency_graphs
 from event_graph import compute_event_graph_metrics
 from filter_policy import (
@@ -330,6 +331,13 @@ def _build_candidate(item, score_policy):
         "consistency_total_violation_score": 0.0,
         "consistency_max_edge_violation": 0.0,
         "consistency_violation_rank": None,
+        "consistency_engine_supported": False,
+        "consistency_repaired_price": None,
+        "consistency_residual": 0.0,
+        "consistency_abs_residual": 0.0,
+        "consistency_residual_rank": None,
+        "consistency_selected": False,
+        "consistency_bias": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -847,6 +855,7 @@ def run():
     multi_market_theses = [cluster for cluster in thesis_clusters if cluster.get("thesis_cluster_size", 0) > 1]
     surface_routes = annotate_surface_routes(value_bets, watchlist, rejected_candidates)
     consistency_graphs = annotate_consistency_graphs(value_bets, watchlist, rejected_candidates)
+    consistency_engine_routes = annotate_consistency_engine(value_bets, watchlist, rejected_candidates)
 
     value_bets_sorted = sorted(
         value_bets,
@@ -982,6 +991,8 @@ Radar
         "surface_routes": surface_routes[:20],
         "consistency_graph_count": len(consistency_graphs),
         "consistency_graphs": consistency_graphs[:20],
+        "consistency_engine_count": len(consistency_engine_routes),
+        "consistency_engine_routes": consistency_engine_routes[:20],
         "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
         "scanned": len(markets),
         "passed_base_filters": len(accepted),
