@@ -24,6 +24,7 @@ from report_sections import build_report_sections
 from scanner import fetch_markets
 from strategy import evaluate_market
 from telegram import send_message
+from thesis_cluster import annotate_thesis_clusters
 
 
 _META_MODEL_CACHE = {}
@@ -304,6 +305,14 @@ def _build_candidate(item, score_policy):
         "repricing_lane_label": None,
         "repricing_lane_prior": None,
         "repricing_size_multiplier": 1.0,
+        "thesis_id": None,
+        "thesis_type": None,
+        "thesis_stem": None,
+        "thesis_cluster_size": 1,
+        "thesis_member_order": 1,
+        "thesis_dimension_type": None,
+        "thesis_dimension_label": None,
+        "thesis_dimension_value": None,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -817,6 +826,9 @@ def run():
                 rejects["low_net_edge"] += 1
                 _record_rejected(rejected_candidates, candidate, "low_net_edge")
 
+    thesis_clusters = annotate_thesis_clusters(value_bets, watchlist, rejected_candidates)
+    multi_market_theses = [cluster for cluster in thesis_clusters if cluster.get("thesis_cluster_size", 0) > 1]
+
     value_bets_sorted = sorted(
         value_bets,
         key=lambda x: (
@@ -940,6 +952,9 @@ Radar
         "day_summary": day_summary,
         "build": BOT_BUILD_ID,
         "source": BOT_SOURCE,
+        "thesis_cluster_count": len(thesis_clusters),
+        "multi_market_thesis_count": len(multi_market_theses),
+        "multi_market_theses": multi_market_theses[:20],
         "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
         "scanned": len(markets),
         "passed_base_filters": len(accepted),
