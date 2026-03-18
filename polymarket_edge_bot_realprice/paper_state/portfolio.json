@@ -35,7 +35,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.115,
-      "last_mark_price": 0.1
+      "last_mark_price": 0.101
     },
     {
       "position_id": "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050:1773805626",
@@ -99,7 +99,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.052,
-      "last_mark_price": 0.032
+      "last_mark_price": 0.035
     },
     {
       "position_id": "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991:1773846273",
@@ -148,6 +148,6 @@
   },
   "daily_anchor_date": "2026-03-18",
   "daily_anchor_equity_usd": 29.257089397652003,
-  "run_count": 90,
-  "last_run_at_utc": "2026-03-18 20:54:58 UTC"
+  "run_count": 91,
+  "last_run_at_utc": "2026-03-18 21:38:41 UTC"
 }
