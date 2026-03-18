@@ -67,7 +67,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.053
+      "last_mark_price": 0.055
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660:1773830063",
@@ -99,7 +99,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.052,
-      "last_mark_price": 0.034
+      "last_mark_price": 0.032
     },
     {
       "position_id": "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991:1773846273",
@@ -131,7 +131,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.039,
-      "last_mark_price": 0.021
+      "last_mark_price": 0.019
     }
   ],
   "recently_closed": {
@@ -148,6 +148,6 @@
   },
   "daily_anchor_date": "2026-03-18",
   "daily_anchor_equity_usd": 29.257089397652003,
-  "run_count": 87,
-  "last_run_at_utc": "2026-03-18 18:33:18 UTC"
+  "run_count": 88,
+  "last_run_at_utc": "2026-03-18 19:34:19 UTC"
 }
