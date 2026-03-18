@@ -35,7 +35,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.115,
-      "last_mark_price": 0.11
+      "last_mark_price": 0.109
     },
     {
       "position_id": "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050:1773805626",
@@ -99,7 +99,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.047,
-      "last_mark_price": 0.047
+      "last_mark_price": 0.043
     }
   ],
   "recently_closed": {
@@ -116,6 +116,6 @@
   },
   "daily_anchor_date": "2026-03-18",
   "daily_anchor_equity_usd": 29.257089397652003,
-  "run_count": 80,
-  "last_run_at_utc": "2026-03-18 10:34:23 UTC"
+  "run_count": 81,
+  "last_run_at_utc": "2026-03-18 11:30:24 UTC"
 }
