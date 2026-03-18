@@ -60,8 +60,8 @@
       "time_stop_ts": 1774013046,
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.043,
-      "last_mark_price": 0.043
+      "max_mark_price": 0.044,
+      "last_mark_price": 0.044
     },
     {
       "position_id": "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162:1773758389",
@@ -124,8 +124,8 @@
       "time_stop_ts": 1774064826,
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.062,
-      "last_mark_price": 0.062
+      "max_mark_price": 0.067,
+      "last_mark_price": 0.067
     }
   ],
   "recently_closed": {
@@ -140,6 +140,6 @@
   },
   "daily_anchor_date": "2026-03-18",
   "daily_anchor_equity_usd": 29.257089397652003,
-  "run_count": 74,
-  "last_run_at_utc": "2026-03-18 03:47:06 UTC"
+  "run_count": 75,
+  "last_run_at_utc": "2026-03-18 05:20:13 UTC"
 }
