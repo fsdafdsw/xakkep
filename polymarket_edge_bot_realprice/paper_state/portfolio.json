@@ -35,7 +35,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.115,
-      "last_mark_price": 0.101
+      "last_mark_price": 0.097
     },
     {
       "position_id": "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050:1773805626",
@@ -67,7 +67,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.053
+      "last_mark_price": 0.051
     },
     {
       "position_id": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172:1773904687",
@@ -152,6 +152,6 @@
   "closed_trade_memory": [],
   "daily_anchor_date": "2026-03-19",
   "daily_anchor_equity_usd": 28.88327842794415,
-  "run_count": 110,
-  "last_run_at_utc": "2026-03-19 15:35:48 UTC"
+  "run_count": 111,
+  "last_run_at_utc": "2026-03-19 16:39:27 UTC"
 }
