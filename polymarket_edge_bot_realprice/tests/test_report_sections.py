@@ -22,6 +22,9 @@ def _candidate(question, *, link, verdict="watch_high_upside", watch_score=0.8, 
         "thesis_surface_score": 0.5,
         "consistency_selected": False,
         "consistency_residual": 0.0,
+        "next_buyer_selected": False,
+        "next_buyer_edge": None,
+        "next_buyer_score": None,
     }
 
 
@@ -69,6 +72,28 @@ class ReportSectionsTests(unittest.TestCase):
         rows = _build_paper_scout_candidates([stronger_plain, consistency])
 
         self.assertEqual(rows[0]["question"], "Consistency-selected buy")
+
+    def test_best_watchlist_prefers_next_buyer_selected_when_consistency_is_equal(self):
+        next_buyer = _candidate(
+            "Next-buyer setup",
+            link="https://example.com/e",
+            watch_score=0.72,
+            repricing_score=0.72,
+        )
+        next_buyer["next_buyer_selected"] = True
+        next_buyer["next_buyer_edge"] = 0.18
+        next_buyer["next_buyer_score"] = 0.74
+
+        stronger_plain = _candidate(
+            "Plain stronger watch",
+            link="https://example.com/f",
+            watch_score=0.90,
+            repricing_score=0.90,
+        )
+
+        rows = _build_best_watchlist([stronger_plain, next_buyer])
+
+        self.assertEqual(rows[0]["question"], "Next-buyer setup")
 
 
 if __name__ == "__main__":

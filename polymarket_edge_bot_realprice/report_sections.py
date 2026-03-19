@@ -29,9 +29,18 @@ def _consistency_sort_prefix(candidate):
     residual = candidate.get("consistency_residual")
     if residual is None:
         residual = 0.0
+    next_buyer_edge = candidate.get("next_buyer_edge")
+    if next_buyer_edge is None:
+        next_buyer_edge = 0.0
+    next_buyer_score = candidate.get("next_buyer_score")
+    if next_buyer_score is None:
+        next_buyer_score = 0.0
     return (
         -(1 if candidate.get("consistency_selected") else 0),
         -max(residual, 0.0),
+        -(1 if candidate.get("next_buyer_selected") else 0),
+        -max(next_buyer_edge, 0.0),
+        -max(next_buyer_score, 0.0),
         -(1 if candidate.get("thesis_surface_selected", True) else 0),
         -(candidate.get("thesis_surface_score") or 0.0),
     )
