@@ -35,7 +35,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.115,
-      "last_mark_price": 0.101
+      "last_mark_price": 0.1
     },
     {
       "position_id": "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050:1773805626",
@@ -67,7 +67,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.069
+      "last_mark_price": 0.07
     },
     {
       "position_id": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660:1773830063",
@@ -99,7 +99,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.052,
-      "last_mark_price": 0.034
+      "last_mark_price": 0.038
     },
     {
       "position_id": "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991:1773846273",
@@ -131,7 +131,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.039,
-      "last_mark_price": 0.021
+      "last_mark_price": 0.022
     }
   ],
   "recently_closed": {
@@ -146,8 +146,8 @@
     "market:how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952": 1773822652,
     "market:how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660": 1773826407
   },
-  "daily_anchor_date": "2026-03-18",
-  "daily_anchor_equity_usd": 29.257089397652003,
-  "run_count": 95,
-  "last_run_at_utc": "2026-03-18 23:48:56 UTC"
+  "daily_anchor_date": "2026-03-19",
+  "daily_anchor_equity_usd": 28.88327842794415,
+  "run_count": 96,
+  "last_run_at_utc": "2026-03-19 01:00:09 UTC"
 }
