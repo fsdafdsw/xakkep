@@ -23,6 +23,7 @@ from paper_trading import run_paper_cycle
 from repricing_selector import score_repricing_signal
 from robust_signal import compute_robust_signal
 from report_sections import build_report_sections
+from regime_state import annotate_regime_state
 from scanner import fetch_markets
 from surface_router import annotate_surface_routes
 from strategy import evaluate_market
@@ -338,6 +339,14 @@ def _build_candidate(item, score_policy):
         "consistency_residual_rank": None,
         "consistency_selected": False,
         "consistency_bias": None,
+        "regime_actual_score": None,
+        "regime_actual_state": None,
+        "regime_implied_score": None,
+        "regime_implied_state": None,
+        "regime_gap_score": None,
+        "regime_transition_quality": None,
+        "regime_trade_window": None,
+        "regime_selected": False,
         "catalyst_type": domain_components.get("catalyst_type"),
         "catalyst_strength": domain_components.get("catalyst_strength"),
         "odds_implied_probability": domain_components.get("implied_probability"),
@@ -867,6 +876,7 @@ def run():
     surface_routes = annotate_surface_routes(value_bets, watchlist, rejected_candidates)
     consistency_graphs = annotate_consistency_graphs(value_bets, watchlist, rejected_candidates)
     consistency_engine_routes = annotate_consistency_engine(value_bets, watchlist, rejected_candidates)
+    regime_routes = annotate_regime_state(value_bets, watchlist, rejected_candidates)
 
     value_bets_sorted = sorted(
         value_bets,
@@ -1008,6 +1018,8 @@ Radar
         "consistency_graphs": consistency_graphs[:20],
         "consistency_engine_count": len(consistency_engine_routes),
         "consistency_engine_routes": consistency_engine_routes[:20],
+        "regime_route_count": len(regime_routes),
+        "regime_routes": regime_routes[:20],
         "mode": "research-gated" if LIVE_USE_RESEARCH_GATES else "baseline",
         "scanned": len(markets),
         "passed_base_filters": len(accepted),
