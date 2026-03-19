@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from config import *
 from consistency_engine import annotate_consistency_engine
 from consistency_graph import annotate_consistency_graphs
+from default_contract import annotate_default_contracts
 from event_graph import compute_event_graph_metrics
 from filter_policy import (
     filter_reason,
@@ -324,6 +325,16 @@ def _build_candidate(item, score_policy):
         "thesis_surface_residual": 0.0,
         "thesis_surface_monotonic_residual": 0.0,
         "thesis_surface_rank": 1,
+        "default_contract_supported": False,
+        "headline_fit_score": None,
+        "narrative_clarity_score": None,
+        "defaultness_score": None,
+        "threshold_centrality_score": None,
+        "deadline_centrality_score": None,
+        "question_complexity_penalty": None,
+        "default_contract_score": None,
+        "default_contract_rank": None,
+        "default_contract_selected": False,
         "consistency_supported": False,
         "consistency_direction": None,
         "consistency_edge_count": 0,
@@ -874,6 +885,7 @@ def run():
     thesis_clusters = annotate_thesis_clusters(value_bets, watchlist, rejected_candidates)
     multi_market_theses = [cluster for cluster in thesis_clusters if cluster.get("thesis_cluster_size", 0) > 1]
     surface_routes = annotate_surface_routes(value_bets, watchlist, rejected_candidates)
+    default_contract_routes = annotate_default_contracts(value_bets, watchlist, rejected_candidates)
     consistency_graphs = annotate_consistency_graphs(value_bets, watchlist, rejected_candidates)
     consistency_engine_routes = annotate_consistency_engine(value_bets, watchlist, rejected_candidates)
     regime_routes = annotate_regime_state(value_bets, watchlist, rejected_candidates)
@@ -1014,6 +1026,8 @@ Radar
         "multi_market_theses": multi_market_theses[:20],
         "surface_route_count": len(surface_routes),
         "surface_routes": surface_routes[:20],
+        "default_contract_count": len(default_contract_routes),
+        "default_contract_routes": default_contract_routes[:20],
         "consistency_graph_count": len(consistency_graphs),
         "consistency_graphs": consistency_graphs[:20],
         "consistency_engine_count": len(consistency_engine_routes),
