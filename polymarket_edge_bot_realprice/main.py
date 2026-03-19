@@ -14,6 +14,7 @@ from filter_policy import (
     signal_bucket,
 )
 from exit_policy import live_exit_plan
+from latent_state import annotate_latent_states
 from meta_model import build_meta_feature_row, load_meta_model, score_meta_row
 from meeting_subtype import meeting_subtype_label
 from next_buyer_score import annotate_next_buyer_scores
@@ -350,6 +351,14 @@ def _build_candidate(item, score_policy):
         "next_buyer_edge": None,
         "next_buyer_rank": None,
         "next_buyer_selected": False,
+        "latent_state_supported": False,
+        "latent_state_name": None,
+        "latent_state_exposure": 0.0,
+        "latent_state_actual_score": None,
+        "latent_state_implied_score": None,
+        "latent_state_gap_score": None,
+        "latent_state_rank": None,
+        "latent_state_selected": False,
         "consistency_supported": False,
         "consistency_direction": None,
         "consistency_edge_count": 0,
@@ -914,6 +923,7 @@ def run():
     consistency_engine_routes = annotate_consistency_engine(value_bets, watchlist, rejected_candidates)
     regime_routes = annotate_regime_state(value_bets, watchlist, rejected_candidates)
     next_buyer_routes = annotate_next_buyer_scores(value_bets, watchlist, rejected_candidates)
+    latent_state_routes = annotate_latent_states(value_bets, watchlist, rejected_candidates)
 
     value_bets_sorted = sorted(
         value_bets,
@@ -923,6 +933,8 @@ def run():
             1 if x.get("next_buyer_selected") else 0,
             x.get("next_buyer_edge") if x.get("next_buyer_edge") is not None else float("-inf"),
             x.get("next_buyer_score") if x.get("next_buyer_score") is not None else float("-inf"),
+            1 if x.get("latent_state_selected") else 0,
+            x.get("latent_state_gap_score") if x.get("latent_state_gap_score") is not None else float("-inf"),
             1 if x.get("thesis_surface_selected", True) else 0,
             x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
@@ -963,6 +975,8 @@ def run():
             1 if x.get("next_buyer_selected") else 0,
             x.get("next_buyer_edge") if x.get("next_buyer_edge") is not None else float("-inf"),
             x.get("next_buyer_score") if x.get("next_buyer_score") is not None else float("-inf"),
+            1 if x.get("latent_state_selected") else 0,
+            x.get("latent_state_gap_score") if x.get("latent_state_gap_score") is not None else float("-inf"),
             1 if x.get("thesis_surface_selected", True) else 0,
             x.get("thesis_surface_score") if x.get("thesis_surface_score") is not None else float("-inf"),
             x["meta_trade_score"] if x.get("meta_trade_score") is not None else float("-inf"),
@@ -1063,6 +1077,8 @@ Radar
         "attention_flow_routes": attention_flow_routes[:20],
         "next_buyer_count": len(next_buyer_routes),
         "next_buyer_routes": next_buyer_routes[:20],
+        "latent_state_count": len(latent_state_routes),
+        "latent_state_routes": latent_state_routes[:20],
         "consistency_graph_count": len(consistency_graphs),
         "consistency_graphs": consistency_graphs[:20],
         "consistency_engine_count": len(consistency_engine_routes),

@@ -25,6 +25,8 @@ def _candidate(question, *, link, verdict="watch_high_upside", watch_score=0.8, 
         "next_buyer_selected": False,
         "next_buyer_edge": None,
         "next_buyer_score": None,
+        "latent_state_selected": False,
+        "latent_state_gap_score": None,
     }
 
 
@@ -94,6 +96,27 @@ class ReportSectionsTests(unittest.TestCase):
         rows = _build_best_watchlist([stronger_plain, next_buyer])
 
         self.assertEqual(rows[0]["question"], "Next-buyer setup")
+
+    def test_best_watchlist_prefers_latent_state_selected_when_other_structure_is_equal(self):
+        latent = _candidate(
+            "Latent-state winner",
+            link="https://example.com/g",
+            watch_score=0.71,
+            repricing_score=0.71,
+        )
+        latent["latent_state_selected"] = True
+        latent["latent_state_gap_score"] = 0.22
+
+        plain = _candidate(
+            "Plain stronger watch",
+            link="https://example.com/h",
+            watch_score=0.92,
+            repricing_score=0.92,
+        )
+
+        rows = _build_best_watchlist([plain, latent])
+
+        self.assertEqual(rows[0]["question"], "Latent-state winner")
 
 
 if __name__ == "__main__":

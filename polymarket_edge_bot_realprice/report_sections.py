@@ -35,12 +35,17 @@ def _consistency_sort_prefix(candidate):
     next_buyer_score = candidate.get("next_buyer_score")
     if next_buyer_score is None:
         next_buyer_score = 0.0
+    latent_state_gap = candidate.get("latent_state_gap_score")
+    if latent_state_gap is None:
+        latent_state_gap = 0.0
     return (
         -(1 if candidate.get("consistency_selected") else 0),
         -max(residual, 0.0),
         -(1 if candidate.get("next_buyer_selected") else 0),
         -max(next_buyer_edge, 0.0),
         -max(next_buyer_score, 0.0),
+        -(1 if candidate.get("latent_state_selected") else 0),
+        -max(latent_state_gap, 0.0),
         -(1 if candidate.get("thesis_surface_selected", True) else 0),
         -(candidate.get("thesis_surface_score") or 0.0),
     )
