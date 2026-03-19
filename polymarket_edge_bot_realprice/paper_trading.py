@@ -6,9 +6,15 @@ from config import (
     BANKROLL_USD,
     ESTIMATED_SLIPPAGE_BPS,
     PAPER_DAILY_STOP_LOSS_USD,
+    PAPER_LANE_ADMISSION_LOOKBACK,
+    PAPER_LANE_KILL_LOSS_STREAK,
+    PAPER_LANE_KILL_MAX_MEAN_PNL_USD,
+    PAPER_LANE_KILL_MIN_TRADES,
     PAPER_INITIAL_BANKROLL_USD,
     PAPER_MAX_BET_USD,
+    PAPER_MAX_CONFLICT_OPEN_POSITIONS,
     PAPER_MAX_OPEN_POSITIONS,
+    PAPER_MAX_OPEN_PER_THEME,
     PAPER_MIN_TRADE_USD,
     PAPER_REPORT_MAX_IDEAS,
     PAPER_REENTRY_COOLDOWN_MINUTES,
@@ -29,9 +35,13 @@ from config import (
     PAPER_SCOUT_MIN_WATCH_SCORE,
     PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
+    PAPER_THEME_ADMISSION_LOOKBACK,
+    PAPER_THEME_KILL_MAX_MEAN_PNL_USD,
+    PAPER_THEME_KILL_MIN_TRADES,
     TAKER_FEE_BPS,
 )
 from exit_policy import live_exit_plan
+from portfolio_admission import can_open_portfolio_trade, portfolio_theme_key, register_closed_trade
 from thesis_trade_policy import can_open_thesis_trade, register_closed_thesis, thesis_identity
 from utils import safe_float, safe_int
 
@@ -85,6 +95,7 @@ def _default_state():
         "positions": [],
         "recently_closed": {},
         "recently_closed_theses": {},
+        "closed_trade_memory": [],
         "daily_anchor_date": _utc_now().strftime("%Y-%m-%d"),
         "daily_anchor_equity_usd": PAPER_INITIAL_BANKROLL_USD,
         "run_count": 0,
@@ -119,6 +130,7 @@ def load_state(state_dir=None):
     default["positions"] = list(default.get("positions") or [])
     default["recently_closed"] = dict(default.get("recently_closed") or {})
     default["recently_closed_theses"] = dict(default.get("recently_closed_theses") or {})
+    default["closed_trade_memory"] = list(default.get("closed_trade_memory") or [])
     return default
 
 
@@ -233,14 +245,125 @@ def _filter_consistency_execution_candidates(candidates):
     return rows
 
 
+def _portfolio_equity(state):
+    equity = safe_float(state.get("cash_usd"), default=0.0)
+    for position in state.get("positions") or []:
+        mark = safe_float(position.get("last_mark_price"), default=position.get("entry_price"))
+        equity += _sale_proceeds(position.get("shares", 0.0), mark)
+    return equity
+
+
+def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", excluded_links=None):
+    if not _passes_consistency_execution_gate(candidate):
+        return {"allowed": False, "blocked_reason": "consistency_gate"}
+
+    if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
+        return {"allowed": False, "blocked_reason": "max_open_positions"}
+
+    market_key = _market_key_from_candidate(candidate)
+    link = candidate.get("link")
+    if excluded_links and link and link in excluded_links:
+        return {"allowed": False, "blocked_reason": "already_open_link"}
+
+    recent_close_ts = safe_int(state.get("recently_closed", {}).get(market_key))
+    now_ts = int(now_dt.timestamp())
+    cooldown_seconds = int(PAPER_REENTRY_COOLDOWN_MINUTES * 60)
+    if recent_close_ts and now_ts - recent_close_ts < cooldown_seconds:
+        return {"allowed": False, "blocked_reason": "market_cooldown"}
+
+    if any(position.get("market_key") == market_key for position in state["positions"]):
+        return {"allowed": False, "blocked_reason": "market_already_open"}
+
+    admission_gate = can_open_portfolio_trade(
+        state,
+        candidate,
+        max_open_per_theme=PAPER_MAX_OPEN_PER_THEME,
+        max_conflict_open_positions=PAPER_MAX_CONFLICT_OPEN_POSITIONS,
+        lane_recent_trades=PAPER_LANE_ADMISSION_LOOKBACK,
+        lane_kill_min_trades=PAPER_LANE_KILL_MIN_TRADES,
+        lane_kill_max_mean_pnl_usd=PAPER_LANE_KILL_MAX_MEAN_PNL_USD,
+        lane_kill_loss_streak=PAPER_LANE_KILL_LOSS_STREAK,
+        theme_recent_trades=PAPER_THEME_ADMISSION_LOOKBACK,
+        theme_kill_min_trades=PAPER_THEME_KILL_MIN_TRADES,
+        theme_kill_max_mean_pnl_usd=PAPER_THEME_KILL_MAX_MEAN_PNL_USD,
+    )
+    if not admission_gate["allowed"]:
+        return {
+            "allowed": False,
+            "blocked_reason": admission_gate["blocked_reason"],
+            "theme_key": admission_gate["theme_key"],
+        }
+
+    thesis_gate = can_open_thesis_trade(
+        state,
+        candidate,
+        now_ts=now_ts,
+        thesis_cooldown_minutes=PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
+    )
+    if not thesis_gate["allowed"]:
+        return {
+            "allowed": False,
+            "blocked_reason": thesis_gate["blocked_reason"],
+            "theme_key": admission_gate["theme_key"],
+            "thesis_id": thesis_gate["thesis_id"],
+        }
+
+    entry_price = safe_float(candidate.get("entry"))
+    if entry_price is None or entry_price <= 0:
+        return {"allowed": False, "blocked_reason": "bad_entry_price"}
+
+    equity = _portfolio_equity(state)
+    if trade_mode == "scout":
+        desired_stake = _scout_stake(equity)
+    else:
+        desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
+    if desired_stake < PAPER_MIN_TRADE_USD:
+        desired_stake = PAPER_MIN_TRADE_USD
+
+    shares = desired_stake / entry_price
+    additional_cost_per_share = safe_float(candidate.get("cost_per_share"), default=0.0)
+    total_outlay = desired_stake + (shares * additional_cost_per_share)
+    cash = safe_float(state.get("cash_usd"), default=0.0)
+    if total_outlay > cash or total_outlay <= 0:
+        return {"allowed": False, "blocked_reason": "insufficient_cash"}
+
+    return {
+        "allowed": True,
+        "blocked_reason": None,
+        "market_key": market_key,
+        "now_ts": now_ts,
+        "theme_key": admission_gate["theme_key"],
+        "thesis_id": thesis_gate["thesis_id"],
+        "entry_price": entry_price,
+        "desired_stake": desired_stake,
+        "shares": shares,
+        "total_outlay": total_outlay,
+        "cash": cash,
+    }
+
+
+def _filter_executable_candidates(state, candidates, now_dt, *, trade_mode="core", excluded_links=None):
+    rows = []
+    for candidate in candidates or []:
+        plan = _candidate_open_plan(
+            state,
+            candidate,
+            now_dt,
+            trade_mode=trade_mode,
+            excluded_links=excluded_links,
+        )
+        if not plan["allowed"]:
+            continue
+        rows.append(candidate)
+    return rows
+
+
 def _build_idea_preview(
     buy_candidates,
     eligible_scout_candidates,
-    best_watchlist,
-    radar_candidates,
     *,
     state=None,
-    now_ts=None,
+    now_dt=None,
     excluded_links=None,
 ):
     rows = []
@@ -250,8 +373,6 @@ def _build_idea_preview(
     for trade_type, bucket, candidates in (
         ("core", "buy_now", buy_candidates or []),
         ("scout", "watchlist", eligible_scout_candidates or []),
-        ("monitor", "watchlist", best_watchlist or []),
-        ("monitor", "radar", radar_candidates or []),
     ):
         for candidate in candidates:
             link = candidate.get("link")
@@ -260,14 +381,15 @@ def _build_idea_preview(
                 continue
             if not _passes_consistency_execution_gate(candidate):
                 continue
-            if state is not None and now_ts is not None:
-                gate = can_open_thesis_trade(
+            if state is not None and now_dt is not None:
+                plan = _candidate_open_plan(
                     state,
                     candidate,
-                    now_ts=now_ts,
-                    thesis_cooldown_minutes=PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
+                    now_dt,
+                    trade_mode=trade_type,
+                    excluded_links=blocked,
                 )
-                if not gate["allowed"]:
+                if not plan["allowed"]:
                     continue
             rows.append(
                 {
@@ -292,53 +414,16 @@ def _build_idea_preview(
 
 
 def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
-    if not _passes_consistency_execution_gate(candidate):
+    open_plan = _candidate_open_plan(state, candidate, now_dt, trade_mode=trade_mode)
+    if not open_plan["allowed"]:
         return None
-
-    if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
-        return None
-
-    market_key = _market_key_from_candidate(candidate)
-    recent_close_ts = safe_int(state.get("recently_closed", {}).get(market_key))
-    now_ts = int(now_dt.timestamp())
-    cooldown_seconds = int(PAPER_REENTRY_COOLDOWN_MINUTES * 60)
-    if recent_close_ts and now_ts - recent_close_ts < cooldown_seconds:
-        return None
-
-    if any(position.get("market_key") == market_key for position in state["positions"]):
-        return None
-
-    thesis_gate = can_open_thesis_trade(
-        state,
-        candidate,
-        now_ts=now_ts,
-        thesis_cooldown_minutes=PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
-    )
-    if not thesis_gate["allowed"]:
-        return None
-
-    entry_price = safe_float(candidate.get("entry"))
-    if entry_price is None or entry_price <= 0:
-        return None
-
-    equity = safe_float(state.get("cash_usd"), default=0.0)
-    for position in state["positions"]:
-        mark = safe_float(position.get("last_mark_price"), default=position.get("entry_price"))
-        equity += _sale_proceeds(position.get("shares", 0.0), mark)
-
-    if trade_mode == "scout":
-        desired_stake = _scout_stake(equity)
-    else:
-        desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
-    if desired_stake < PAPER_MIN_TRADE_USD:
-        desired_stake = PAPER_MIN_TRADE_USD
-
-    shares = desired_stake / entry_price
-    additional_cost_per_share = safe_float(candidate.get("cost_per_share"), default=0.0)
-    total_outlay = desired_stake + (shares * additional_cost_per_share)
-    cash = safe_float(state.get("cash_usd"), default=0.0)
-    if total_outlay > cash or total_outlay <= 0:
-        return None
+    market_key = open_plan["market_key"]
+    now_ts = open_plan["now_ts"]
+    entry_price = open_plan["entry_price"]
+    desired_stake = open_plan["desired_stake"]
+    shares = open_plan["shares"]
+    total_outlay = open_plan["total_outlay"]
+    cash = open_plan["cash"]
 
     exit_plan = live_exit_plan(
         candidate.get("domain_action_family"),
@@ -367,9 +452,11 @@ def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
         "catalyst_type": candidate.get("catalyst_type"),
         "lane_key": candidate.get("repricing_lane_key"),
         "lane_label": candidate.get("repricing_lane_label"),
-        "thesis_id": thesis_gate["thesis_id"],
+        "thesis_id": open_plan["thesis_id"],
         "thesis_type": candidate.get("thesis_type"),
         "thesis_cluster_size": candidate.get("thesis_cluster_size"),
+        "primary_entity_key": candidate.get("primary_entity_key"),
+        "theme_key": open_plan["theme_key"],
         "trade_mode": trade_mode,
         "take_profit_price": safe_float(exit_plan.get("take_profit_price")),
         "stop_loss_price": safe_float(exit_plan.get("stop_loss_price")),
@@ -411,6 +498,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
     state["realized_pnl_usd"] = safe_float(state.get("realized_pnl_usd"), default=0.0) + pnl
     state.setdefault("recently_closed", {})[position["market_key"]] = int(now_dt.timestamp())
     thesis_id = register_closed_thesis(state, position, closed_ts=int(now_dt.timestamp()))
+    closed_trade = register_closed_trade(state, position, pnl_usd=pnl, closed_ts=int(now_dt.timestamp()))
     ledger_rows.append(
         {
             "ts_utc": _iso_utc(now_dt),
@@ -424,6 +512,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
             "lane_key": position.get("lane_key"),
             "catalyst_type": position.get("catalyst_type"),
             "thesis_id": thesis_id,
+            "theme_key": closed_trade.get("theme_key"),
             "trade_mode": position.get("trade_mode"),
             "link": position.get("link"),
         }
@@ -437,6 +526,7 @@ def _close_position(state, position, mark_price, reason, now_dt, ledger_rows):
         "lane_label": position.get("lane_label") or position.get("lane_key"),
         "link": position.get("link"),
         "thesis_id": thesis_id,
+        "theme_key": closed_trade.get("theme_key"),
         "trade_mode": position.get("trade_mode"),
     }
 
@@ -515,6 +605,7 @@ def _state_snapshot(state):
                 "max_mark_price": safe_float(position.get("max_mark_price"), default=mark),
                 "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
                 "thesis_id": position.get("thesis_id") or thesis_identity(position),
+                "theme_key": position.get("theme_key") or portfolio_theme_key(position),
                 "trade_mode": position.get("trade_mode"),
             }
         )
@@ -551,7 +642,7 @@ def _format_report(summary):
         f"Bank: ${start_bank:.2f} -> ${equity:.2f} ({sign}{change_pct:.2f}%)",
         f"Cash: ${summary['cash_usd']:.2f} | Open positions: {summary['open_position_count']} | Realized: {realized_sign}${abs(realized):.2f} | Unrealized: {unrealized_sign}${abs(unrealized):.2f}",
         f"Daily guard: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Drawdown today ${summary.get('daily_drawdown_usd', 0.0):.2f} / ${PAPER_DAILY_STOP_LOSS_USD:.2f}",
-        f"Signal pool: {summary.get('buy_now_count', 0)} buy now | {summary.get('watchlist_count', 0)} watchlist | {summary.get('radar_count', 0)} radar",
+        f"Executable pool: {summary.get('buy_now_count', 0)} core | {summary.get('watchlist_count', 0)} watch scout | {summary.get('radar_count', 0)} radar scout",
         "",
         "Opened this run",
     ]
@@ -720,6 +811,7 @@ def run_paper_cycle(
     post_close_snapshot = _state_snapshot(state)
     _refresh_daily_anchor(state, post_close_snapshot, now_dt)
     daily_stop_hit, daily_drawdown = _daily_stop_hit(state, post_close_snapshot)
+    open_links = {row.get("link") for row in post_close_snapshot["open_positions"] if row.get("link")}
 
     paper_buy_candidates = _filter_consistency_execution_candidates(buy_candidates)
     paper_watchlist_candidates = _filter_consistency_execution_candidates(best_watchlist)
@@ -727,9 +819,41 @@ def run_paper_cycle(
     paper_radar_candidates = _filter_consistency_execution_candidates(radar_candidates)
 
     opened_positions = []
+    executable_buy_candidates = []
+    executable_watch_candidates = []
+    executable_radar_candidates = []
+    executable_scout_rows = []
     if not daily_stop_hit:
-        eligible_scout_rows = _eligible_scout_candidates(paper_scout_pool)
-        for trade_mode, rows in (("core", paper_buy_candidates), ("scout", eligible_scout_rows)):
+        executable_buy_candidates = _filter_executable_candidates(
+            state,
+            paper_buy_candidates,
+            now_dt,
+            trade_mode="core",
+            excluded_links=open_links,
+        )
+        executable_watch_candidates = _filter_executable_candidates(
+            state,
+            _eligible_scout_candidates(paper_watchlist_candidates, limit=False),
+            now_dt,
+            trade_mode="scout",
+            excluded_links=open_links,
+        )
+        executable_radar_candidates = _filter_executable_candidates(
+            state,
+            _eligible_scout_candidates(paper_radar_candidates, limit=False),
+            now_dt,
+            trade_mode="scout",
+            excluded_links=open_links,
+        )
+        executable_scout_rows = _filter_executable_candidates(
+            state,
+            _eligible_scout_candidates(paper_scout_pool, limit=False),
+            now_dt,
+            trade_mode="scout",
+            excluded_links=open_links,
+        )[:PAPER_SCOUT_MAX_PER_RUN]
+
+        for trade_mode, rows in (("core", executable_buy_candidates), ("scout", executable_scout_rows)):
             for candidate in rows:
                 position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
                 if position:
@@ -747,14 +871,17 @@ def run_paper_cycle(
 
     snapshot = _state_snapshot(state)
     open_links = {row.get("link") for row in snapshot["open_positions"] if row.get("link")}
-    preview_scout_rows = _eligible_scout_candidates(paper_scout_pool, limit=False) if not daily_stop_hit else []
     idea_preview = _build_idea_preview(
-        paper_buy_candidates,
-        preview_scout_rows,
-        paper_watchlist_candidates,
-        paper_radar_candidates,
+        executable_buy_candidates if not daily_stop_hit else [],
+        _filter_executable_candidates(
+            state,
+            _eligible_scout_candidates(paper_scout_pool, limit=False),
+            now_dt,
+            trade_mode="scout",
+            excluded_links=open_links,
+        ) if not daily_stop_hit else [],
         state=state,
-        now_ts=int(now_dt.timestamp()),
+        now_dt=now_dt,
         excluded_links=open_links,
     )
     summary = {
@@ -772,9 +899,9 @@ def run_paper_cycle(
         "daily_stop_hit": daily_stop_hit,
         "daily_drawdown_usd": daily_drawdown,
         "daily_anchor_equity_usd": safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"]),
-        "buy_now_count": len(paper_buy_candidates),
-        "watchlist_count": len(paper_watchlist_candidates),
-        "radar_count": len(paper_radar_candidates),
+        "buy_now_count": len(executable_buy_candidates),
+        "watchlist_count": len(executable_watch_candidates),
+        "radar_count": len(executable_radar_candidates),
         "idea_preview": idea_preview,
     }
 

@@ -218,6 +218,7 @@ class PaperTradingTests(unittest.TestCase):
             watch["repricing_lane_key"] = "diplomacy_talk_call"
             watch["repricing_lane_label"] = "Talk / call lane"
             watch["thesis_id"] = "watch_thesis:test"
+            watch["primary_entity_key"] = "putin"
             radar = _candidate(0.12, stake=0.25)
             radar["market_id"] = "market-3"
             radar["event_slug"] = "market-3"
@@ -228,6 +229,11 @@ class PaperTradingTests(unittest.TestCase):
             radar["repricing_lane_key"] = "generic_repricing"
             radar["repricing_lane_label"] = "Generic repricing"
             radar["thesis_id"] = "radar_thesis:test"
+            radar["primary_entity_key"] = "poland"
+            radar["repricing_score"] = 0.86
+            radar["repricing_watch_score"] = 0.96
+            radar["repricing_attention_gap"] = 0.54
+            radar["confidence"] = 0.83
             result = run_paper_cycle(
                 [_market(0.10)],
                 [buy],
@@ -240,10 +246,88 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(summary["buy_now_count"], 1)
             self.assertEqual(summary["watchlist_count"], 1)
             self.assertEqual(summary["radar_count"], 1)
-            self.assertGreaterEqual(len(summary["idea_preview"]), 1)
-            self.assertEqual(summary["idea_preview"][0]["question"], "Radar setup?")
-            self.assertIn("Signal pool: 1 buy now | 1 watchlist | 1 radar", result["report_text"])
+            self.assertEqual(len(summary["opened"]), 2)
+            self.assertEqual(summary["idea_preview"], [])
+            self.assertIn("Executable pool: 1 core | 1 watch scout | 1 radar scout", result["report_text"])
             self.assertIn("Next trade", result["report_text"])
+            self.assertIn("Next trade\nnone", result["report_text"])
+            self.assertNotIn("Watch only", result["report_text"])
+
+    def test_preview_hides_candidate_blocked_by_theme_cap(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = _candidate(0.10)
+            first["primary_entity_key"] = "israel"
+            run_paper_cycle(
+                [_market(0.10)],
+                [first],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+
+            blocked = _candidate(0.12, stake=0.25)
+            blocked["market_id"] = "market-2"
+            blocked["event_slug"] = "market-2"
+            blocked["market_key"] = "market-2|token-2"
+            blocked["selected_token_id"] = "token-2"
+            blocked["link"] = "https://polymarket.com/event/market-2?tid=token-2"
+            blocked["question"] = "Will Israel strike 6 countries in 2026?"
+            blocked["repricing_verdict"] = "watch_high_upside"
+            blocked["primary_entity_key"] = "israel"
+
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [],
+                best_watchlist=[blocked],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:05:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(summary["watchlist_count"], 0)
+            self.assertEqual(summary["idea_preview"], [])
+            self.assertIn("Next trade\nnone", result["report_text"])
+
+    def test_blocks_third_conflict_position_by_lane_cap(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            china = _candidate(0.10)
+            china["question"] = "Will China invade Taiwan by end of 2026?"
+            china["primary_entity_key"] = "china"
+            china["event_slug"] = "china-invade"
+            china["market_key"] = "china|token-1"
+            china["link"] = "https://polymarket.com/event/china-invade?tid=token-1"
+            china["thesis_id"] = "conflict_thesis:china"
+
+            north_korea = _candidate(0.10)
+            north_korea["question"] = "Will North Korea invade South Korea before 2027?"
+            north_korea["primary_entity_key"] = "north_korea"
+            north_korea["event_slug"] = "nk-invade"
+            north_korea["market_key"] = "nk|token-1"
+            north_korea["link"] = "https://polymarket.com/event/nk-invade?tid=token-1"
+            north_korea["thesis_id"] = "conflict_thesis:nk"
+
+            run_paper_cycle(
+                [_market(0.10), _market(0.10)],
+                [china, north_korea],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+
+            third = _candidate(0.11)
+            third["question"] = "Will Russia strike Poland by June 30?"
+            third["primary_entity_key"] = "russia"
+            third["event_slug"] = "russia-strike-poland"
+            third["market_key"] = "russia|token-1"
+            third["link"] = "https://polymarket.com/event/russia-strike-poland?tid=token-1"
+            third["thesis_id"] = "conflict_thesis:russia"
+
+            result = run_paper_cycle(
+                [_market(0.11)],
+                [third],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:05:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["buy_now_count"], 0)
 
     def test_blocks_non_selected_consistency_candidate_in_ladder(self):
         with tempfile.TemporaryDirectory() as tmpdir:
