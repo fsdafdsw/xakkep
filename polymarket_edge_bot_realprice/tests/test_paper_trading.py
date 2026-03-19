@@ -367,6 +367,49 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(len(summary["opened"]), 1)
             self.assertEqual(summary["buy_now_count"], 1)
 
+    def test_blocks_non_selected_next_buyer_candidate_in_ladder(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            blocked = _candidate(0.10)
+            blocked["question"] = "Blocked next buyer sibling?"
+            blocked["next_buyer_supported"] = True
+            blocked["next_buyer_selected"] = False
+            blocked["next_buyer_edge"] = 0.12
+            blocked["consistency_engine_supported"] = True
+            blocked["consistency_selected"] = True
+            blocked["consistency_residual"] = 0.05
+
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [blocked],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["buy_now_count"], 0)
+
+    def test_opens_selected_next_buyer_candidate_in_ladder(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            selected = _candidate(0.10)
+            selected["question"] = "Selected next buyer sibling?"
+            selected["next_buyer_supported"] = True
+            selected["next_buyer_selected"] = True
+            selected["next_buyer_edge"] = 0.16
+            selected["next_buyer_score"] = 0.74
+            selected["consistency_engine_supported"] = True
+            selected["consistency_selected"] = False
+            selected["consistency_residual"] = 0.01
+
+            result = run_paper_cycle(
+                [_market(0.10)],
+                [selected],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["buy_now_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

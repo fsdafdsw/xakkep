@@ -551,6 +551,14 @@ def _format_signal(rank, candidate):
 
 
 def _paper_structure_selected(candidate):
+    if candidate.get("next_buyer_supported"):
+        edge = candidate.get("next_buyer_edge")
+        try:
+            edge = float(edge)
+        except (TypeError, ValueError):
+            edge = 0.0
+        return bool(candidate.get("next_buyer_selected")) and edge > 0.0
+
     if candidate.get("consistency_engine_supported"):
         residual = candidate.get("consistency_residual")
         try:

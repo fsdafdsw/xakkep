@@ -220,9 +220,15 @@ def _preview_priority(row):
     )
 
 
-def _passes_consistency_execution_gate(candidate):
+def _passes_structure_execution_gate(candidate):
     if not candidate:
         return False
+
+    if candidate.get("next_buyer_supported"):
+        edge = safe_float(candidate.get("next_buyer_edge"), default=0.0)
+        if edge <= 0.0:
+            return False
+        return bool(candidate.get("next_buyer_selected"))
 
     if not candidate.get("consistency_engine_supported"):
         return True
@@ -240,7 +246,7 @@ def _passes_consistency_execution_gate(candidate):
 def _filter_consistency_execution_candidates(candidates):
     rows = []
     for candidate in candidates or []:
-        if _passes_consistency_execution_gate(candidate):
+        if _passes_structure_execution_gate(candidate):
             rows.append(candidate)
     return rows
 
@@ -254,8 +260,8 @@ def _portfolio_equity(state):
 
 
 def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", excluded_links=None):
-    if not _passes_consistency_execution_gate(candidate):
-        return {"allowed": False, "blocked_reason": "consistency_gate"}
+    if not _passes_structure_execution_gate(candidate):
+        return {"allowed": False, "blocked_reason": "structure_gate"}
 
     if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
         return {"allowed": False, "blocked_reason": "max_open_positions"}
@@ -379,7 +385,7 @@ def _build_idea_preview(
             dedupe_key = link or candidate.get("market_key") or candidate.get("question")
             if not dedupe_key or dedupe_key in seen or link in blocked:
                 continue
-            if not _passes_consistency_execution_gate(candidate):
+            if not _passes_structure_execution_gate(candidate):
                 continue
             if state is not None and now_dt is not None:
                 plan = _candidate_open_plan(
@@ -726,7 +732,7 @@ def _eligible_scout_candidates(candidates, *, limit=True):
     rows = []
     seen = set()
     for candidate in candidates or []:
-        if not _passes_consistency_execution_gate(candidate):
+        if not _passes_structure_execution_gate(candidate):
             continue
         link = candidate.get("link")
         if link and link in seen:
