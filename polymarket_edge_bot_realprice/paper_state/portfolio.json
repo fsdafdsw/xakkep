@@ -67,7 +67,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.064
+      "last_mark_price": 0.07
     },
     {
       "position_id": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172:1773904687",
@@ -99,7 +99,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.066
+      "last_mark_price": 0.067
     }
   ],
   "recently_closed": {
@@ -130,6 +130,6 @@
   ],
   "daily_anchor_date": "2026-03-20",
   "daily_anchor_equity_usd": 28.64712823071587,
-  "run_count": 126,
-  "last_run_at_utc": "2026-03-20 07:13:34 UTC"
+  "run_count": 127,
+  "last_run_at_utc": "2026-03-20 07:57:24 UTC"
 }
