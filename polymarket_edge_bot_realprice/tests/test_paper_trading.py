@@ -33,10 +33,22 @@ def _candidate(entry, stake=50.0):
         "domain_action_family": "conflict",
         "catalyst_type": "military_action",
         "repricing_verdict": "buy_now",
+        "repricing_score": 0.90,
+        "repricing_watch_score": 0.90,
+        "repricing_attention_gap": 0.54,
         "repricing_lane_key": "conflict_fast",
         "repricing_lane_label": "Conflict fast lane",
+        "repricing_lane_prior": 0.78,
+        "repricing_fresh_catalyst_score": 0.72,
+        "repricing_conflict_setup_score": 0.86,
+        "repricing_conflict_urgency_score": 0.92,
+        "confidence": 0.82,
+        "regime_selected": False,
+        "regime_gap_score": 0.0,
+        "next_buyer_selected": False,
+        "latent_state_selected": False,
         "thesis_id": "threshold_ladder:test",
-        "thesis_type": "threshold_ladder",
+        "thesis_type": "standalone",
         "thesis_cluster_size": 2,
     }
 
@@ -150,10 +162,11 @@ class PaperTradingTests(unittest.TestCase):
             scout["repricing_verdict"] = "watch_high_upside"
             scout["repricing_lane_key"] = "diplomacy_ceasefire"
             scout["repricing_lane_label"] = "Ceasefire lane"
-            scout["repricing_watch_score"] = 0.79
+            scout["repricing_watch_score"] = 0.93
             scout["repricing_attention_gap"] = 0.42
             scout["repricing_lane_prior"] = 0.68
             scout["confidence"] = 0.78
+            scout["latent_state_selected"] = True
             result = run_paper_cycle(
                 [_market(0.12)],
                 [],
@@ -174,10 +187,68 @@ class PaperTradingTests(unittest.TestCase):
             scout["repricing_watch_score"] = 0.96
             scout["repricing_attention_gap"] = 0.54
             scout["confidence"] = 0.83
+            scout["regime_selected"] = True
+            scout["regime_gap_score"] = 0.22
             result = run_paper_cycle(
                 [_market(0.09)],
                 [],
                 scout_candidates=[scout],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+
+    def test_does_not_open_conflict_fast_scout_from_radar_buy_now(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scout = _candidate(0.07, stake=0.25)
+            scout["repricing_verdict"] = "buy_now"
+            scout["thesis_type"] = "threshold_ladder"
+            result = run_paper_cycle(
+                [_market(0.07)],
+                [],
+                scout_candidates=[scout],
+                radar_candidates=[scout],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 0)
+
+    def test_does_not_open_generic_radar_buy_without_regime_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scout = _candidate(0.09, stake=0.25)
+            scout["repricing_lane_key"] = "generic_repricing"
+            scout["repricing_lane_label"] = "Generic repricing"
+            scout["repricing_score"] = 0.86
+            scout["repricing_watch_score"] = 0.96
+            scout["repricing_attention_gap"] = 0.54
+            scout["confidence"] = 0.83
+            result = run_paper_cycle(
+                [_market(0.09)],
+                [],
+                scout_candidates=[scout],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 0)
+
+    def test_opens_meeting_watch_high_upside_with_regime_support(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scout = _candidate(0.07, stake=0.25)
+            scout["repricing_verdict"] = "watch_high_upside"
+            scout["repricing_lane_key"] = "diplomacy_meeting"
+            scout["repricing_lane_label"] = "Meeting lane"
+            scout["repricing_watch_score"] = 0.95
+            scout["repricing_attention_gap"] = 0.31
+            scout["confidence"] = 0.78
+            scout["regime_selected"] = True
+            result = run_paper_cycle(
+                [_market(0.07)],
+                [],
+                best_watchlist=[scout],
                 state_dir=tmpdir,
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
@@ -219,7 +290,7 @@ class PaperTradingTests(unittest.TestCase):
             watch["repricing_lane_label"] = "Talk / call lane"
             watch["thesis_id"] = "watch_thesis:test"
             watch["primary_entity_key"] = "putin"
-            radar = _candidate(0.12, stake=0.25)
+            radar = _candidate(0.09, stake=0.25)
             radar["market_id"] = "market-3"
             radar["event_slug"] = "market-3"
             radar["market_key"] = "market-3|token-3"
@@ -234,6 +305,8 @@ class PaperTradingTests(unittest.TestCase):
             radar["repricing_watch_score"] = 0.96
             radar["repricing_attention_gap"] = 0.54
             radar["confidence"] = 0.83
+            radar["regime_selected"] = True
+            radar["regime_gap_score"] = 0.22
             result = run_paper_cycle(
                 [_market(0.10)],
                 [buy],

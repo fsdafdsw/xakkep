@@ -19,20 +19,10 @@ from config import (
     PAPER_REPORT_MAX_IDEAS,
     PAPER_REENTRY_COOLDOWN_MINUTES,
     PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
-    PAPER_RADAR_SCOUT_ENABLED,
-    PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE,
-    PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP,
-    PAPER_RADAR_SCOUT_MIN_CONFIDENCE,
     PAPER_RADAR_SCOUT_MIN_SCORE,
     PAPER_REPORT_MAX_OPEN_POSITIONS,
     PAPER_SCOUT_ENABLED,
-    PAPER_SCOUT_LANES,
-    PAPER_SCOUT_MAX_ENTRY_PRICE,
     PAPER_SCOUT_MAX_PER_RUN,
-    PAPER_SCOUT_MIN_CONFIDENCE,
-    PAPER_SCOUT_MIN_ATTENTION_GAP,
-    PAPER_SCOUT_MIN_LANE_PRIOR,
-    PAPER_SCOUT_MIN_WATCH_SCORE,
     PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
     PAPER_THEME_ADMISSION_LOOKBACK,
@@ -243,6 +233,116 @@ def _passes_structure_execution_gate(candidate):
     return False
 
 
+def _passes_execution_mode_policy(candidate, *, trade_mode):
+    lane_key = str(candidate.get("repricing_lane_key") or "")
+    verdict = str(candidate.get("repricing_verdict") or "")
+    thesis_type = str(candidate.get("thesis_type") or "")
+    entry = safe_float(candidate.get("entry"), default=1.0)
+    score = safe_float(candidate.get("repricing_score"), default=0.0)
+    watch_score = safe_float(candidate.get("repricing_watch_score"), default=0.0)
+    attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
+    confidence = safe_float(candidate.get("confidence"), default=0.0)
+    lane_prior = safe_float(candidate.get("repricing_lane_prior"), default=0.0)
+    fresh_catalyst = safe_float(candidate.get("repricing_fresh_catalyst_score"), default=0.0)
+    conflict_setup = safe_float(candidate.get("repricing_conflict_setup_score"), default=0.0)
+    conflict_urgency = safe_float(candidate.get("repricing_conflict_urgency_score"), default=0.0)
+    regime_gap = safe_float(candidate.get("regime_gap_score"), default=0.0)
+    regime_selected = bool(candidate.get("regime_selected"))
+    next_buyer_selected = bool(candidate.get("next_buyer_selected"))
+    latent_state_selected = bool(candidate.get("latent_state_selected"))
+
+    if trade_mode == "core":
+        if lane_key == "conflict_fast":
+            return (
+                verdict == "buy_now"
+                and entry <= 0.10
+                and conflict_setup >= 0.76
+                and conflict_urgency >= 0.82
+            )
+        return True
+
+    if trade_mode != "scout":
+        return True
+
+    if lane_key == "conflict_fast":
+        return (
+            verdict == "buy_now"
+            and thesis_type != "threshold_ladder"
+            and entry <= 0.08
+            and conflict_setup >= 0.84
+            and conflict_urgency >= 0.90
+            and (next_buyer_selected or latent_state_selected or regime_selected)
+        )
+
+    if lane_key == "release_hearing":
+        return (
+            verdict in {"buy_now", "watch_high_upside", "watch"}
+            and entry <= 0.22
+            and watch_score >= 0.68
+            and attention_gap >= 0.28
+            and confidence >= 0.68
+            and fresh_catalyst >= 0.52
+        )
+
+    if lane_key == "diplomacy_talk_call":
+        return (
+            verdict in {"buy_now", "watch_high_upside", "watch"}
+            and entry <= 0.14
+            and watch_score >= 0.70
+            and attention_gap >= 0.32
+            and confidence >= 0.68
+            and lane_prior >= 0.58
+        )
+
+    if lane_key == "diplomacy_meeting":
+        return (
+            verdict == "watch_high_upside"
+            and entry <= 0.08
+            and watch_score >= 0.92
+            and attention_gap >= 0.28
+            and confidence >= 0.74
+            and (next_buyer_selected or regime_selected)
+        )
+
+    if lane_key == "diplomacy_resume_talks":
+        return (
+            verdict in {"buy_now", "watch_high_upside"}
+            and entry <= 0.12
+            and watch_score >= 0.82
+            and attention_gap >= 0.30
+            and confidence >= 0.72
+        )
+
+    if lane_key == "diplomacy_ceasefire":
+        return (
+            verdict in {"watch_high_upside", "watch"}
+            and entry <= 0.12
+            and watch_score >= 0.90
+            and attention_gap >= 0.28
+            and confidence >= 0.72
+            and (latent_state_selected or next_buyer_selected or regime_gap >= 0.14)
+        )
+
+    if lane_key == "regime_shift":
+        return (
+            verdict in {"buy_now", "watch_high_upside"}
+            and entry <= 0.14
+            and confidence >= 0.78
+            and regime_gap >= 0.14
+        )
+
+    if lane_key == "generic_repricing":
+        return (
+            verdict == "buy_now"
+            and score >= PAPER_RADAR_SCOUT_MIN_SCORE
+            and entry <= 0.10
+            and confidence >= 0.82
+            and (regime_selected or regime_gap >= 0.18)
+        )
+
+    return False
+
+
 def _filter_consistency_execution_candidates(candidates):
     rows = []
     for candidate in candidates or []:
@@ -262,6 +362,9 @@ def _portfolio_equity(state):
 def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", excluded_links=None):
     if not _passes_structure_execution_gate(candidate):
         return {"allowed": False, "blocked_reason": "structure_gate"}
+
+    if not _passes_execution_mode_policy(candidate, trade_mode=trade_mode):
+        return {"allowed": False, "blocked_reason": "execution_policy"}
 
     if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
         return {"allowed": False, "blocked_reason": "max_open_positions"}
@@ -734,47 +837,10 @@ def _eligible_scout_candidates(candidates, *, limit=True):
     for candidate in candidates or []:
         if not _passes_structure_execution_gate(candidate):
             continue
+        if not _passes_execution_mode_policy(candidate, trade_mode="scout"):
+            continue
         link = candidate.get("link")
         if link and link in seen:
-            continue
-        verdict = str(candidate.get("repricing_verdict") or "")
-        lane_key = str(candidate.get("repricing_lane_key") or "")
-        entry = safe_float(candidate.get("entry"), default=1.0)
-        watch_score = safe_float(candidate.get("repricing_watch_score"), default=0.0)
-        score = safe_float(candidate.get("repricing_score"), default=0.0)
-        attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
-        confidence = safe_float(candidate.get("confidence"), default=0.0)
-        lane_prior = safe_float(candidate.get("repricing_lane_prior"), default=0.0)
-        is_watch_lane = lane_key in PAPER_SCOUT_LANES
-        is_radar_buy = (
-            PAPER_RADAR_SCOUT_ENABLED
-            and verdict == "buy_now"
-            and score >= PAPER_RADAR_SCOUT_MIN_SCORE
-            and confidence >= PAPER_RADAR_SCOUT_MIN_CONFIDENCE
-            and attention_gap >= PAPER_RADAR_SCOUT_MIN_ATTENTION_GAP
-            and entry <= PAPER_RADAR_SCOUT_MAX_ENTRY_PRICE
-        )
-        is_lane_high_upside = (
-            is_watch_lane
-            and verdict == "watch_high_upside"
-            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
-        )
-        is_lane_strong_watch = (
-            is_watch_lane
-            and verdict == "watch"
-            and watch_score >= PAPER_SCOUT_MIN_WATCH_SCORE
-            and attention_gap >= PAPER_SCOUT_MIN_ATTENTION_GAP
-            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
-        )
-        is_global_high_upside = (
-            verdict == "watch_high_upside"
-            and watch_score >= PAPER_SCOUT_MIN_WATCH_SCORE
-            and attention_gap >= PAPER_SCOUT_MIN_ATTENTION_GAP
-            and confidence >= PAPER_SCOUT_MIN_CONFIDENCE
-            and lane_prior >= PAPER_SCOUT_MIN_LANE_PRIOR
-            and entry <= PAPER_SCOUT_MAX_ENTRY_PRICE
-        )
-        if not (is_lane_high_upside or is_lane_strong_watch or is_global_high_upside or is_radar_buy):
             continue
         rows.append(candidate)
         if link:
