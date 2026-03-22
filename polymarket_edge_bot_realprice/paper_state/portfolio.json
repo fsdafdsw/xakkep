@@ -2,7 +2,7 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 28.016777727487494,
+  "cash_usd": 27.662052727487495,
   "realized_pnl_usd": -1.6119972725125065,
   "positions": [
     {
@@ -38,6 +38,40 @@
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
       "last_mark_price": 0.03
+    },
+    {
+      "position_id": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724:1774208681",
+      "market_key": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724",
+      "market_id": "665209",
+      "event_slug": "will-trump-be-impeached-by-june-30",
+      "link": "https://polymarket.com/event/will-trump-be-impeached-by-june-30?tid=16880187354325382908535775621770920514888866267674968679832631030907171108724",
+      "question": "Will Trump be impeached by June 30?",
+      "selected_outcome": "Yes",
+      "entry_price": 0.05,
+      "shares": 6.999999999999999,
+      "stake_usd": 0.35,
+      "total_outlay_usd": 0.35472499999999996,
+      "opened_ts": 1774208681,
+      "opened_at_utc": "2026-03-22 19:44:41 UTC",
+      "action_family": "regime_shift",
+      "catalyst_type": "regime_shift",
+      "lane_key": "regime_shift",
+      "lane_label": "Regime shift lane",
+      "thesis_id": "deadline_ladder:ebec95567d",
+      "thesis_type": "deadline_ladder",
+      "thesis_cluster_size": 1,
+      "primary_entity_key": "trump",
+      "theme_key": "regime_shift:trump",
+      "trade_mode": "scout",
+      "take_profit_price": 0.3,
+      "stop_loss_price": 0.042,
+      "stop_activation_hours": 8.0,
+      "time_stop_days": 5.0,
+      "time_stop_ts": 1774640681,
+      "trailing_arm_pct": 0.24,
+      "trailing_drawdown_pct": 0.14,
+      "max_mark_price": 0.05,
+      "last_mark_price": 0.05
     }
   ],
   "recently_closed": {
@@ -101,6 +135,6 @@
   ],
   "daily_anchor_date": "2026-03-22",
   "daily_anchor_equity_usd": 28.358603451171703,
-  "run_count": 213,
-  "last_run_at_utc": "2026-03-22 19:21:05 UTC"
+  "run_count": 214,
+  "last_run_at_utc": "2026-03-22 19:44:41 UTC"
 }
