@@ -2,41 +2,9 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.700126740645388,
-  "realized_pnl_usd": -1.559002206723033,
+  "cash_usd": 28.016777727487494,
+  "realized_pnl_usd": -1.6119972725125065,
   "positions": [
-    {
-      "position_id": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172:1773904687",
-      "market_key": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172",
-      "market_id": "665459",
-      "event_slug": "will-north-korea-invade-south-korea-before-2027",
-      "link": "https://polymarket.com/event/will-north-korea-invade-south-korea-before-2027?tid=14585618186186946549733724355927128735197195541609100736978645150463981689172",
-      "question": "Will North Korea invade South Korea before 2027?",
-      "selected_outcome": "Yes",
-      "entry_price": 0.076,
-      "shares": 4.605263157894736,
-      "stake_usd": 0.35,
-      "total_outlay_usd": 0.3696460526315789,
-      "opened_ts": 1773904687,
-      "opened_at_utc": "2026-03-19 07:18:07 UTC",
-      "action_family": "conflict",
-      "catalyst_type": "military_action",
-      "lane_key": "conflict_fast",
-      "lane_label": "Conflict fast lane",
-      "thesis_id": "deadline_ladder:b6da90492c",
-      "thesis_type": "deadline_ladder",
-      "thesis_cluster_size": 1,
-      "trade_mode": "scout",
-      "take_profit_price": 0.1178,
-      "stop_loss_price": 0.0608,
-      "stop_activation_hours": 18.0,
-      "time_stop_days": 3.0,
-      "time_stop_ts": 1774163887,
-      "trailing_arm_pct": 0.25,
-      "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.076,
-      "last_mark_price": 0.069
-    },
     {
       "position_id": "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819:1774111015",
       "market_key": "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819",
@@ -79,7 +47,8 @@
     "how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356": 1773788671,
     "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991": 1773914256,
     "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050": 1774017120,
-    "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162": 1774020354
+    "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162": 1774020354,
+    "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172": 1774165874
   },
   "recently_closed_theses": {
     "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
@@ -89,7 +58,8 @@
     "threshold_ladder:55c101c8fe": 1773990814,
     "deadline_ladder:85622cb250": 1773914256,
     "deadline_ladder:8193ae1fb4": 1774017120,
-    "deadline_ladder:4955344cbd": 1774020354
+    "deadline_ladder:4955344cbd": 1774020354,
+    "deadline_ladder:b6da90492c": 1774165874
   },
   "closed_trade_memory": [
     {
@@ -118,10 +88,19 @@
       "pnl_usd": -0.024259375000000027,
       "trade_mode": "scout",
       "question": "Will China invade Taiwan by end of 2026?"
+    },
+    {
+      "closed_ts": 1774165874,
+      "lane_key": "conflict_fast",
+      "theme_key": "conflict:north_korea",
+      "market_key": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172",
+      "pnl_usd": -0.05299506578947366,
+      "trade_mode": "scout",
+      "question": "Will North Korea invade South Korea before 2027?"
     }
   ],
   "daily_anchor_date": "2026-03-22",
   "daily_anchor_equity_usd": 28.358603451171703,
-  "run_count": 192,
-  "last_run_at_utc": "2026-03-22 07:10:29 UTC"
+  "run_count": 193,
+  "last_run_at_utc": "2026-03-22 07:51:14 UTC"
 }
