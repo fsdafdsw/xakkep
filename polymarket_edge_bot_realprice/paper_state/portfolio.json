@@ -35,7 +35,7 @@
       "trailing_arm_pct": 0.25,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.076,
-      "last_mark_price": 0.074
+      "last_mark_price": 0.069
     },
     {
       "position_id": "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819:1774111015",
@@ -122,6 +122,6 @@
   ],
   "daily_anchor_date": "2026-03-22",
   "daily_anchor_equity_usd": 28.358603451171703,
-  "run_count": 188,
-  "last_run_at_utc": "2026-03-22 01:22:40 UTC"
+  "run_count": 189,
+  "last_run_at_utc": "2026-03-22 04:00:02 UTC"
 }
