@@ -37,7 +37,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
-      "last_mark_price": 0.03
+      "last_mark_price": 0.031
     },
     {
       "position_id": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724:1774208681",
@@ -71,7 +71,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.05,
-      "last_mark_price": 0.048
+      "last_mark_price": 0.049
     }
   ],
   "recently_closed": {
@@ -135,6 +135,6 @@
   ],
   "daily_anchor_date": "2026-03-22",
   "daily_anchor_equity_usd": 28.358603451171703,
-  "run_count": 221,
-  "last_run_at_utc": "2026-03-22 22:59:51 UTC"
+  "run_count": 222,
+  "last_run_at_utc": "2026-03-22 23:39:01 UTC"
 }
