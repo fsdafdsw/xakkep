@@ -37,7 +37,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
-      "last_mark_price": 0.03
+      "last_mark_price": 0.031
     },
     {
       "position_id": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724:1774208681",
@@ -71,7 +71,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.052,
-      "last_mark_price": 0.052
+      "last_mark_price": 0.051
     },
     {
       "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774277288",
@@ -105,7 +105,7 @@
       "trailing_arm_pct": 0.22,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.056,
-      "last_mark_price": 0.056
+      "last_mark_price": 0.051
     }
   ],
   "recently_closed": {
@@ -169,6 +169,6 @@
   ],
   "daily_anchor_date": "2026-03-23",
   "daily_anchor_equity_usd": 28.312767227487495,
-  "run_count": 234,
-  "last_run_at_utc": "2026-03-23 14:48:08 UTC"
+  "run_count": 235,
+  "last_run_at_utc": "2026-03-23 15:47:57 UTC"
 }
