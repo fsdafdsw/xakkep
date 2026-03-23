@@ -2,8 +2,8 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.295202727487496,
-  "realized_pnl_usd": -1.6119972725125065,
+  "cash_usd": 27.664904227487497,
+  "realized_pnl_usd": -1.5970207725125065,
   "positions": [
     {
       "position_id": "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819:1774111015",
@@ -38,40 +38,6 @@
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
       "last_mark_price": 0.031
-    },
-    {
-      "position_id": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724:1774208681",
-      "market_key": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724",
-      "market_id": "665209",
-      "event_slug": "will-trump-be-impeached-by-june-30",
-      "link": "https://polymarket.com/event/will-trump-be-impeached-by-june-30?tid=16880187354325382908535775621770920514888866267674968679832631030907171108724",
-      "question": "Will Trump be impeached by June 30?",
-      "selected_outcome": "Yes",
-      "entry_price": 0.05,
-      "shares": 6.999999999999999,
-      "stake_usd": 0.35,
-      "total_outlay_usd": 0.35472499999999996,
-      "opened_ts": 1774208681,
-      "opened_at_utc": "2026-03-22 19:44:41 UTC",
-      "action_family": "regime_shift",
-      "catalyst_type": "regime_shift",
-      "lane_key": "regime_shift",
-      "lane_label": "Regime shift lane",
-      "thesis_id": "deadline_ladder:ebec95567d",
-      "thesis_type": "deadline_ladder",
-      "thesis_cluster_size": 1,
-      "primary_entity_key": "trump",
-      "theme_key": "regime_shift:trump",
-      "trade_mode": "scout",
-      "take_profit_price": 0.3,
-      "stop_loss_price": 0.042,
-      "stop_activation_hours": 8.0,
-      "time_stop_days": 5.0,
-      "time_stop_ts": 1774640681,
-      "trailing_arm_pct": 0.24,
-      "trailing_drawdown_pct": 0.14,
-      "max_mark_price": 0.063,
-      "last_mark_price": 0.063
     },
     {
       "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774277288",
@@ -116,7 +82,8 @@
     "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991": 1773914256,
     "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050": 1774017120,
     "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162": 1774020354,
-    "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172": 1774165874
+    "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172": 1774165874,
+    "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724": 1774294406
   },
   "recently_closed_theses": {
     "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
@@ -127,7 +94,8 @@
     "deadline_ladder:85622cb250": 1773914256,
     "deadline_ladder:8193ae1fb4": 1774017120,
     "deadline_ladder:4955344cbd": 1774020354,
-    "deadline_ladder:b6da90492c": 1774165874
+    "deadline_ladder:b6da90492c": 1774165874,
+    "deadline_ladder:ebec95567d": 1774294406
   },
   "closed_trade_memory": [
     {
@@ -165,10 +133,19 @@
       "pnl_usd": -0.05299506578947366,
       "trade_mode": "scout",
       "question": "Will North Korea invade South Korea before 2027?"
+    },
+    {
+      "closed_ts": 1774294406,
+      "lane_key": "regime_shift",
+      "theme_key": "regime_shift:trump",
+      "market_key": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724",
+      "pnl_usd": 0.014976500000000004,
+      "trade_mode": "scout",
+      "question": "Will Trump be impeached by June 30?"
     }
   ],
   "daily_anchor_date": "2026-03-23",
   "daily_anchor_equity_usd": 28.312767227487495,
-  "run_count": 238,
-  "last_run_at_utc": "2026-03-23 18:33:28 UTC"
+  "run_count": 239,
+  "last_run_at_utc": "2026-03-23 19:33:26 UTC"
 }
