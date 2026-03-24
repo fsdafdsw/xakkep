@@ -2,7 +2,7 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.901572977487497,
+  "cash_usd": 27.527014644154164,
   "realized_pnl_usd": -1.7272020225125067,
   "positions": [
     {
@@ -38,6 +38,40 @@
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
       "last_mark_price": 0.031
+    },
+    {
+      "position_id": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729:1774375879",
+      "market_key": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729",
+      "market_id": "898685",
+      "event_slug": "israel-x-hamas-ceasefire-phase-ii-by-october-31",
+      "link": "https://polymarket.com/event/israel-x-hamas-ceasefire-phase-ii-by-october-31?tid=109165744595608085112011734845673565600068942364879488622398983503366544786729",
+      "question": "Israel x Hamas Ceasefire Phase II by March 31?",
+      "selected_outcome": "Yes",
+      "entry_price": 0.03,
+      "shares": 11.666666666666666,
+      "stake_usd": 0.35,
+      "total_outlay_usd": 0.3745583333333333,
+      "opened_ts": 1774375879,
+      "opened_at_utc": "2026-03-24 18:11:19 UTC",
+      "action_family": "diplomacy",
+      "catalyst_type": "ceasefire",
+      "lane_key": "diplomacy_ceasefire",
+      "lane_label": "Ceasefire lane",
+      "thesis_id": "deadline_ladder:4605c10bcd",
+      "thesis_type": "deadline_ladder",
+      "thesis_cluster_size": 1,
+      "primary_entity_key": null,
+      "theme_key": "diplomacy:israel_x_hamas_ceasefire_phase_ii_by_october_31",
+      "trade_mode": "scout",
+      "take_profit_price": 0.18,
+      "stop_loss_price": 0.021599999999999998,
+      "stop_activation_hours": 24.0,
+      "time_stop_days": 10.0,
+      "time_stop_ts": 1775239879,
+      "trailing_arm_pct": 0.22,
+      "trailing_drawdown_pct": 0.18,
+      "max_mark_price": 0.03,
+      "last_mark_price": 0.03
     }
   ],
   "recently_closed": {
@@ -123,6 +157,6 @@
   ],
   "daily_anchor_date": "2026-03-24",
   "daily_anchor_equity_usd": 28.229172352487495,
-  "run_count": 260,
-  "last_run_at_utc": "2026-03-24 17:13:53 UTC"
+  "run_count": 261,
+  "last_run_at_utc": "2026-03-24 18:11:19 UTC"
 }
