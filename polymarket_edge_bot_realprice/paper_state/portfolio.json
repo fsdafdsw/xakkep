@@ -37,7 +37,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
-      "last_mark_price": 0.033
+      "last_mark_price": 0.034
     },
     {
       "position_id": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729:1774375879",
@@ -157,6 +157,6 @@
   ],
   "daily_anchor_date": "2026-03-24",
   "daily_anchor_equity_usd": 28.229172352487495,
-  "run_count": 266,
-  "last_run_at_utc": "2026-03-24 22:18:04 UTC"
+  "run_count": 267,
+  "last_run_at_utc": "2026-03-24 22:54:39 UTC"
 }
