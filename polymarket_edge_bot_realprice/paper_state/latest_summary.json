@@ -1,29 +1,27 @@
 {
-  "generated_at_utc": "2026-03-26 15:44:39 UTC",
+  "generated_at_utc": "2026-03-26 16:48:17 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.134613173565928,
-  "equity_usd": 28.079627340232594,
-  "realized_pnl_usd": -1.7272020225125067,
-  "unrealized_pnl_usd": -0.1931706372549019,
-  "open_position_count": 3,
+  "cash_usd": 27.453493173565928,
+  "equity_usd": 28.116165673565927,
+  "realized_pnl_usd": -1.7795470225125067,
+  "unrealized_pnl_usd": -0.1042873039215686,
+  "open_position_count": 2,
   "opened": [],
-  "closed": [],
-  "open_positions": [
+  "closed": [
     {
       "question": "Macron out by June 30, 2026?",
       "selected_outcome": "Yes",
-      "entry_price": 0.035,
-      "mark_price": 0.033,
-      "unrealized_pnl_usd": -0.04237999999999997,
+      "exit_price": 0.032,
+      "pnl_usd": -0.05234500000000003,
+      "reason": "time_stop",
       "lane_label": "Regime shift lane",
       "link": "https://polymarket.com/event/macron-out-in-2025?tid=16201530957950630406397949502319734794139620443510795733205872225099141120819",
-      "opened_at_utc": "2026-03-21 16:36:55 UTC",
-      "max_mark_price": 0.035,
-      "stake_usd": 0.35,
       "thesis_id": "deadline_ladder:e6641edb57",
       "theme_key": "regime_shift:macron_out_in_2025",
       "trade_mode": "scout"
-    },
+    }
+  ],
+  "open_positions": [
     {
       "question": "Will Putin meet with Zelenskyy by June 30, 2026?",
       "selected_outcome": "Yes",
@@ -43,8 +41,8 @@
       "question": "Israel x Hamas Ceasefire Phase II by March 31?",
       "selected_outcome": "Yes",
       "entry_price": 0.03,
-      "mark_price": 0.023,
-      "unrealized_pnl_usd": -0.10716416666666667,
+      "mark_price": 0.027,
+      "unrealized_pnl_usd": -0.06066083333333333,
       "lane_label": "Ceasefire lane",
       "link": "https://polymarket.com/event/israel-x-hamas-ceasefire-phase-ii-by-october-31?tid=109165744595608085112011734845673565600068942364879488622398983503366544786729",
       "opened_at_utc": "2026-03-24 18:11:19 UTC",
@@ -55,9 +53,9 @@
       "trade_mode": "scout"
     }
   ],
-  "run_count": 302,
+  "run_count": 303,
   "daily_stop_hit": false,
-  "daily_drawdown_usd": 0.01328666666666578,
+  "daily_drawdown_usd": -0.023251666666666893,
   "daily_anchor_equity_usd": 28.09291400689926,
   "buy_now_count": 0,
   "watchlist_count": 0,
