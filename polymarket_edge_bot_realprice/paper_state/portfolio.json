@@ -2,43 +2,9 @@
   "version": 1,
   "created_at_utc": "2026-03-15 09:20:35 UTC",
   "initial_bankroll_usd": 30.0,
-  "cash_usd": 27.453493173565928,
-  "realized_pnl_usd": -1.7795470225125067,
+  "cash_usd": 27.686009840232593,
+  "realized_pnl_usd": -1.9215886891791734,
   "positions": [
-    {
-      "position_id": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729:1774375879",
-      "market_key": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729",
-      "market_id": "898685",
-      "event_slug": "israel-x-hamas-ceasefire-phase-ii-by-october-31",
-      "link": "https://polymarket.com/event/israel-x-hamas-ceasefire-phase-ii-by-october-31?tid=109165744595608085112011734845673565600068942364879488622398983503366544786729",
-      "question": "Israel x Hamas Ceasefire Phase II by March 31?",
-      "selected_outcome": "Yes",
-      "entry_price": 0.03,
-      "shares": 11.666666666666666,
-      "stake_usd": 0.35,
-      "total_outlay_usd": 0.3745583333333333,
-      "opened_ts": 1774375879,
-      "opened_at_utc": "2026-03-24 18:11:19 UTC",
-      "action_family": "diplomacy",
-      "catalyst_type": "ceasefire",
-      "lane_key": "diplomacy_ceasefire",
-      "lane_label": "Ceasefire lane",
-      "thesis_id": "deadline_ladder:4605c10bcd",
-      "thesis_type": "deadline_ladder",
-      "thesis_cluster_size": 1,
-      "primary_entity_key": null,
-      "theme_key": "diplomacy:israel_x_hamas_ceasefire_phase_ii_by_october_31",
-      "trade_mode": "scout",
-      "take_profit_price": 0.18,
-      "stop_loss_price": 0.021599999999999998,
-      "stop_activation_hours": 24.0,
-      "time_stop_days": 10.0,
-      "time_stop_ts": 1775239879,
-      "trailing_arm_pct": 0.22,
-      "trailing_drawdown_pct": 0.18,
-      "max_mark_price": 0.03,
-      "last_mark_price": 0.026
-    },
     {
       "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774436935",
       "market_key": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574",
@@ -85,7 +51,8 @@
     "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172": 1774165874,
     "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724": 1774294406,
     "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574": 1774363973,
-    "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819": 1774543697
+    "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819": 1774543697,
+    "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729": 1774558761
   },
   "recently_closed_theses": {
     "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
@@ -99,7 +66,8 @@
     "deadline_ladder:b6da90492c": 1774165874,
     "deadline_ladder:ebec95567d": 1774294406,
     "deadline_ladder:67c932e933": 1774363973,
-    "deadline_ladder:e6641edb57": 1774543697
+    "deadline_ladder:e6641edb57": 1774543697,
+    "deadline_ladder:4605c10bcd": 1774558761
   },
   "closed_trade_memory": [
     {
@@ -164,10 +132,19 @@
       "pnl_usd": -0.05234500000000003,
       "trade_mode": "scout",
       "question": "Macron out by June 30, 2026?"
+    },
+    {
+      "closed_ts": 1774558761,
+      "lane_key": "diplomacy_ceasefire",
+      "theme_key": "diplomacy:israel_x_hamas_ceasefire_phase_ii_by_october_31",
+      "market_key": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729",
+      "pnl_usd": -0.14204166666666665,
+      "trade_mode": "scout",
+      "question": "Israel x Hamas Ceasefire Phase II by March 31?"
     }
   ],
   "daily_anchor_date": "2026-03-26",
   "daily_anchor_equity_usd": 28.09291400689926,
-  "run_count": 307,
-  "last_run_at_utc": "2026-03-26 20:23:28 UTC"
+  "run_count": 308,
+  "last_run_at_utc": "2026-03-26 20:59:21 UTC"
 }
