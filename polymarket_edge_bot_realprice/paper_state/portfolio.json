@@ -37,7 +37,7 @@
       "trailing_arm_pct": 0.24,
       "trailing_drawdown_pct": 0.14,
       "max_mark_price": 0.035,
-      "last_mark_price": 0.032
+      "last_mark_price": 0.033
     },
     {
       "position_id": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729:1774375879",
@@ -71,7 +71,7 @@
       "trailing_arm_pct": 0.22,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.03,
-      "last_mark_price": 0.025
+      "last_mark_price": 0.022
     },
     {
       "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774436935",
@@ -105,7 +105,7 @@
       "trailing_arm_pct": 0.22,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.057,
-      "last_mark_price": 0.053
+      "last_mark_price": 0.055
     }
   ],
   "recently_closed": {
@@ -191,6 +191,6 @@
   ],
   "daily_anchor_date": "2026-03-26",
   "daily_anchor_equity_usd": 28.09291400689926,
-  "run_count": 299,
-  "last_run_at_utc": "2026-03-26 11:37:33 UTC"
+  "run_count": 300,
+  "last_run_at_utc": "2026-03-26 12:40:10 UTC"
 }
