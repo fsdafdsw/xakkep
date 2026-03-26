@@ -37,7 +37,7 @@
       "trailing_arm_pct": 0.22,
       "trailing_drawdown_pct": 0.18,
       "max_mark_price": 0.03,
-      "last_mark_price": 0.025
+      "last_mark_price": 0.026
     },
     {
       "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774436935",
@@ -168,6 +168,6 @@
   ],
   "daily_anchor_date": "2026-03-26",
   "daily_anchor_equity_usd": 28.09291400689926,
-  "run_count": 306,
-  "last_run_at_utc": "2026-03-26 19:47:02 UTC"
+  "run_count": 307,
+  "last_run_at_utc": "2026-03-26 20:23:28 UTC"
 }
