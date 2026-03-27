@@ -1,5 +1,7 @@
+import json
 import tempfile
 import unittest
+from pathlib import Path
 
 from paper_trading import run_paper_cycle
 
@@ -334,6 +336,57 @@ class PaperTradingTests(unittest.TestCase):
             self.assertIn("Executable core pool: 1", result["report_text"])
             self.assertIn("Next executable trade\nnone", result["report_text"])
             self.assertIn("Why no trade\nOpened a core trade this run.", result["report_text"])
+            self.assertIn("Strategy: core_only_v3", result["report_text"])
+
+    def test_resets_legacy_strategy_state_and_archives_old_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "portfolio.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "strategy_version": "legacy_scout_mode",
+                        "initial_bankroll_usd": 30.0,
+                        "cash_usd": 27.5,
+                        "realized_pnl_usd": -1.0,
+                        "positions": [
+                            {
+                                "market_key": "legacy|token",
+                                "question": "Legacy market?",
+                                "selected_outcome": "Yes",
+                                "entry_price": 0.10,
+                                "shares": 5.0,
+                                "total_outlay_usd": 0.55,
+                                "last_mark_price": 0.08,
+                                "stake_usd": 0.50,
+                                "lane_key": "conflict_fast",
+                                "lane_label": "Conflict fast lane",
+                                "trade_mode": "scout",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "ledger.jsonl").write_text("{\"kind\":\"open\"}\n", encoding="utf-8")
+            (root / "latest_summary.json").write_text("{\"initial_bankroll_usd\":30}\n", encoding="utf-8")
+
+            result = run_paper_cycle(
+                [],
+                [],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-27 12:00:00 UTC",
+            )
+
+            summary = result["summary"]
+            self.assertTrue(summary["strategy_reset"])
+            self.assertEqual(summary["strategy_reset_from"], "legacy_scout_mode")
+            self.assertEqual(summary["open_position_count"], 0)
+            self.assertEqual(summary["cash_usd"], 30.0)
+            self.assertIn("State reset: yes | previous strategy legacy_scout_mode", result["report_text"])
+            archive_dir = Path(summary["strategy_reset_archive_dir"])
+            self.assertTrue((archive_dir / "portfolio.json").exists())
+            self.assertTrue((archive_dir / "ledger.jsonl").exists())
 
     def test_preview_hides_candidate_blocked_by_theme_cap(self):
         with tempfile.TemporaryDirectory() as tmpdir:

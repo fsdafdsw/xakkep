@@ -1,4 +1,5 @@
 import json
+import shutil
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from config import (
     PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
     PAPER_REPORT_MAX_OPEN_POSITIONS,
     PAPER_STATE_DIR,
+    PAPER_STRATEGY_VERSION,
     PAPER_THEME_ADMISSION_LOOKBACK,
     PAPER_THEME_KILL_MAX_MEAN_PNL_USD,
     PAPER_THEME_KILL_MIN_TRADES,
@@ -74,7 +76,8 @@ def _fee_rate():
 
 def _default_state():
     return {
-        "version": 1,
+        "version": 2,
+        "strategy_version": PAPER_STRATEGY_VERSION,
         "created_at_utc": _iso_utc(_utc_now()),
         "initial_bankroll_usd": PAPER_INITIAL_BANKROLL_USD,
         "cash_usd": PAPER_INITIAL_BANKROLL_USD,
@@ -101,24 +104,66 @@ def _paper_paths(state_dir=None):
     }
 
 
+def _safe_archive_part(value):
+    text = str(value or "legacy")
+    cleaned = []
+    for char in text:
+        if char.isalnum() or char in ("-", "_"):
+            cleaned.append(char)
+        else:
+            cleaned.append("_")
+    collapsed = "".join(cleaned).strip("_")
+    return collapsed or "legacy"
+
+
+def _archive_stale_state(paths, state, *, archived_from=None):
+    existing_files = [paths[name] for name in ("state", "ledger", "runs", "latest") if paths[name].exists()]
+    if not existing_files:
+        return None
+
+    archived_from = str(archived_from or state.get("strategy_version") or "legacy")
+    archive_dir = (
+        paths["root"]
+        / "archive"
+        / f"{_utc_now().strftime('%Y%m%dT%H%M%SZ')}_{_safe_archive_part(archived_from)}"
+    )
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    for source in existing_files:
+        shutil.move(str(source), str(archive_dir / source.name))
+
+    return {
+        "from_strategy_version": archived_from,
+        "archive_dir": str(archive_dir),
+    }
+
+
 def load_state(state_dir=None):
     paths = _paper_paths(state_dir)
     path = paths["state"]
     if not path.exists():
-        return _default_state()
+        return _default_state(), None
     try:
         with path.open("r", encoding="utf-8") as fh:
-            state = json.load(fh)
+            raw_state = json.load(fh)
     except Exception:
-        return _default_state()
+        return _default_state(), None
 
     default = _default_state()
-    default.update(state if isinstance(state, dict) else {})
+    default.update(raw_state if isinstance(raw_state, dict) else {})
     default["positions"] = list(default.get("positions") or [])
     default["recently_closed"] = dict(default.get("recently_closed") or {})
     default["recently_closed_theses"] = dict(default.get("recently_closed_theses") or {})
     default["closed_trade_memory"] = list(default.get("closed_trade_memory") or [])
-    return default
+    raw_strategy = ""
+    if isinstance(raw_state, dict):
+        raw_strategy = str(raw_state.get("strategy_version") or "")
+    if raw_strategy != PAPER_STRATEGY_VERSION:
+        reset_info = _archive_stale_state(paths, default, archived_from=raw_strategy or "legacy") or {
+            "from_strategy_version": raw_strategy or "legacy",
+            "archive_dir": None,
+        }
+        return _default_state(), reset_info
+    return default, None
 
 
 def _write_json(path, payload):
@@ -649,7 +694,7 @@ def _state_snapshot(state):
 def _blocked_reason_label(reason):
     labels = {
         "daily_stop": "Daily stop is active, so new entries are paused.",
-        "no_buy_candidates": "No buy_now candidates reached paper execution.",
+        "no_buy_candidates": "No core candidates reached paper execution.",
         "lane_not_enabled": "No candidate landed in the active core lanes.",
         "not_buy_now": "Candidates existed, but none were strong enough for buy_now.",
         "not_high_upside": "Candidates existed, but none reached the high-upside meeting threshold.",
@@ -705,13 +750,18 @@ def _format_report(summary):
         f"Polymarket paper bot - {summary['generated_at_utc']}",
         "",
         f"Health: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Runs {summary.get('run_count', 0)} | Open positions {summary['open_position_count']}",
+        f"Strategy: {summary.get('strategy_version') or PAPER_STRATEGY_VERSION}",
         f"Bank: ${start_bank:.2f} -> ${equity:.2f} ({sign}{change_pct:.2f}%)",
         f"Cash: ${summary['cash_usd']:.2f} | Open positions: {summary['open_position_count']} | Realized: {realized_sign}${abs(realized):.2f} | Unrealized: {unrealized_sign}${abs(unrealized):.2f}",
         f"Daily guard: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Drawdown today ${summary.get('daily_drawdown_usd', 0.0):.2f} / ${PAPER_DAILY_STOP_LOSS_USD:.2f}",
         f"Executable core pool: {summary.get('buy_now_count', 0)}",
-        "",
-        "Opened this run",
     ]
+
+    if summary.get("strategy_reset"):
+        reset_from = summary.get("strategy_reset_from") or "legacy"
+        lines.append(f"State reset: yes | previous strategy {reset_from}")
+
+    lines.extend(["", "Opened this run"])
 
     if summary["opened"]:
         for idx, row in enumerate(summary["opened"], start=1):
@@ -793,7 +843,7 @@ def run_paper_cycle(
     generated_at_utc=None,
 ):
     now_dt = _utc_now()
-    state = load_state(state_dir=state_dir)
+    state, reset_info = load_state(state_dir=state_dir)
     state["run_count"] = safe_int(state.get("run_count"), default=0) + 1
     state["last_run_at_utc"] = _iso_utc(now_dt)
 
@@ -847,6 +897,10 @@ def run_paper_cycle(
     )
     summary = {
         "generated_at_utc": generated_at_utc or _iso_utc(now_dt),
+        "strategy_version": state.get("strategy_version") or PAPER_STRATEGY_VERSION,
+        "strategy_reset": bool(reset_info),
+        "strategy_reset_from": (reset_info or {}).get("from_strategy_version"),
+        "strategy_reset_archive_dir": (reset_info or {}).get("archive_dir"),
         "initial_bankroll_usd": safe_float(state.get("initial_bankroll_usd"), default=PAPER_INITIAL_BANKROLL_USD),
         "cash_usd": snapshot["cash_usd"],
         "equity_usd": snapshot["equity_usd"],
