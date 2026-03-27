@@ -8,6 +8,7 @@ from consistency_engine import annotate_consistency_engine
 from consistency_graph import annotate_consistency_graphs
 from default_contract import annotate_default_contracts
 from event_graph import compute_event_graph_metrics
+from fast_crypto import build_fast_crypto_candidates, fast_crypto_report_prefix
 from filter_policy import (
     filter_reason,
     scoring_policy_for_market,
@@ -828,6 +829,54 @@ def run():
         }
         _recompute_trade_fields(item)
         accepted.append(item)
+
+    if FAST_CRYPTO_MODE:
+        fast_crypto = build_fast_crypto_candidates(accepted)
+        fast_buy_candidates = fast_crypto["buy_candidates"]
+        fast_watch_candidates = fast_crypto["watch_candidates"]
+        fast_summary = fast_crypto["summary"]
+
+        utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        report = (
+            f"{fast_crypto_report_prefix(fast_summary)}\n\n"
+            f"Generated at {utc_now}"
+        )
+        report_payload = {
+            "generated_at_utc": utc_now,
+            "build": BOT_BUILD_ID,
+            "source": BOT_SOURCE,
+            "mode": "fast-crypto",
+            "scanned": len(markets),
+            "passed_base_filters": len(accepted),
+            "price_coverage": coverage["price_available"],
+            "orderbook_coverage": coverage["book_available"],
+            "fast_crypto": {
+                **fast_summary,
+                "buy_candidates": fast_buy_candidates,
+                "watch_candidates": fast_watch_candidates,
+            },
+            "rejects": rejects,
+            "report_text": report,
+        }
+        if PAPER_TRADING_ENABLED:
+            no_trade_reason_hint = None
+            if fast_summary.get("active_short_markets", 0) == 0:
+                no_trade_reason_hint = "No active 5/10/15-minute crypto markets passed the current filters."
+            paper_result = run_paper_cycle(
+                markets,
+                fast_buy_candidates,
+                best_watchlist=fast_watch_candidates,
+                generated_at_utc=utc_now,
+                no_trade_reason_hint=no_trade_reason_hint,
+            )
+            paper_report = f"{fast_crypto_report_prefix(fast_summary)}\n\n{paper_result['report_text']}"
+            report_payload["paper_trading"] = paper_result["summary"]
+            report_payload["report_text"] = paper_report
+            report = paper_report
+
+        _write_report_artifacts(report_payload)
+        send_message(report)
+        return
 
     if LIVE_USE_RESEARCH_GATES:
         # Research mode keeps the stricter event-relative and lower-bound logic.

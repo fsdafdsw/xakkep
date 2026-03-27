@@ -28,6 +28,28 @@ EXCLUDED_QUESTION_PATTERNS = [
     if part.strip()
 ]
 
+# Fast crypto micro-mode
+FAST_CRYPTO_MODE = os.getenv("FAST_CRYPTO_MODE", "false").lower() == "true"
+FAST_CRYPTO_ALLOWED_SYMBOLS = [
+    part.strip().lower()
+    for part in os.getenv(
+        "FAST_CRYPTO_ALLOWED_SYMBOLS",
+        "bitcoin,btc,ethereum,eth,solana,sol,xrp,ripple",
+    ).split(",")
+    if part.strip()
+]
+FAST_CRYPTO_MIN_HOURS_TO_CLOSE = float(os.getenv("FAST_CRYPTO_MIN_HOURS_TO_CLOSE", "0.0"))
+FAST_CRYPTO_MAX_HOURS_TO_CLOSE = float(os.getenv("FAST_CRYPTO_MAX_HOURS_TO_CLOSE", "0.30"))
+FAST_CRYPTO_MIN_VOLUME = float(os.getenv("FAST_CRYPTO_MIN_VOLUME", "800"))
+FAST_CRYPTO_MIN_LIQUIDITY = float(os.getenv("FAST_CRYPTO_MIN_LIQUIDITY", "800"))
+FAST_CRYPTO_MAX_SPREAD = float(os.getenv("FAST_CRYPTO_MAX_SPREAD", "0.04"))
+FAST_CRYPTO_MIN_CONFIDENCE = float(os.getenv("FAST_CRYPTO_MIN_CONFIDENCE", "0.58"))
+FAST_CRYPTO_MIN_EDGE = float(os.getenv("FAST_CRYPTO_MIN_EDGE", "0.008"))
+FAST_CRYPTO_MIN_DIRECTION_BIAS = float(os.getenv("FAST_CRYPTO_MIN_DIRECTION_BIAS", "0.06"))
+FAST_CRYPTO_MIN_VOLUME_CONFIRMATION = float(os.getenv("FAST_CRYPTO_MIN_VOLUME_CONFIRMATION", "0.34"))
+FAST_CRYPTO_MIN_ORDERBOOK = float(os.getenv("FAST_CRYPTO_MIN_ORDERBOOK", "0.54"))
+FAST_CRYPTO_FAIR_SHIFT = float(os.getenv("FAST_CRYPTO_FAIR_SHIFT", "0.06"))
+
 # Signal thresholds (after trading costs)
 EDGE_THRESHOLD = float(os.getenv("EDGE_THRESHOLD", "0.02"))
 WATCH_THRESHOLD = float(os.getenv("WATCH_THRESHOLD", "0.012"))

@@ -9,6 +9,9 @@ from config import (
     ESTIMATED_SLIPPAGE_BPS,
     PAPER_CORE_LANES,
     PAPER_DAILY_STOP_LOSS_USD,
+    FAST_CRYPTO_MAX_HOURS_TO_CLOSE,
+    FAST_CRYPTO_MIN_CONFIDENCE,
+    FAST_CRYPTO_MIN_DIRECTION_BIAS,
     PAPER_LANE_ADMISSION_LOOKBACK,
     PAPER_LANE_KILL_LOSS_STREAK,
     PAPER_LANE_KILL_MAX_MEAN_PNL_USD,
@@ -260,6 +263,9 @@ def _execution_policy_decision(candidate, *, trade_mode):
     attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
     confidence = safe_float(candidate.get("confidence"), default=0.0)
     fresh_catalyst = safe_float(candidate.get("repricing_fresh_catalyst_score"), default=0.0)
+    fast_score = safe_float(candidate.get("fast_crypto_score"), default=0.0)
+    fast_bias = safe_float(candidate.get("fast_crypto_direction_bias"), default=0.0)
+    hours_to_close = safe_float(candidate.get("hours_to_close"), default=99.0)
 
     if trade_mode != "core":
         return {"allowed": False, "blocked_reason": "scout_disabled"}
@@ -306,6 +312,19 @@ def _execution_policy_decision(candidate, *, trade_mode):
             return {"allowed": False, "blocked_reason": "attention_too_low"}
         if watch_score < 0.92:
             return {"allowed": False, "blocked_reason": "watch_score_too_low"}
+        return {"allowed": True, "blocked_reason": None}
+
+    if lane_key == "crypto_micro":
+        if verdict != "buy_now":
+            return {"allowed": False, "blocked_reason": "not_buy_now"}
+        if confidence < FAST_CRYPTO_MIN_CONFIDENCE:
+            return {"allowed": False, "blocked_reason": "confidence_too_low"}
+        if fast_bias < FAST_CRYPTO_MIN_DIRECTION_BIAS:
+            return {"allowed": False, "blocked_reason": "crypto_bias_too_low"}
+        if fast_score < 0.60:
+            return {"allowed": False, "blocked_reason": "crypto_score_too_low"}
+        if hours_to_close > FAST_CRYPTO_MAX_HOURS_TO_CLOSE + 0.05:
+            return {"allowed": False, "blocked_reason": "crypto_horizon_too_long"}
         return {"allowed": True, "blocked_reason": None}
 
     return {"allowed": False, "blocked_reason": "lane_not_enabled"}
@@ -530,6 +549,7 @@ def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
         "stop_activation_hours": safe_float(exit_plan.get("stop_activation_hours"), default=12.0),
         "time_stop_days": time_stop_days,
         "time_stop_ts": time_stop_ts,
+        "event_end_ts": safe_int(candidate.get("end_ts")),
         "trailing_arm_pct": safe_float(exit_plan.get("trailing_arm_pct"), default=0.20),
         "trailing_drawdown_pct": safe_float(exit_plan.get("trailing_drawdown_pct"), default=0.18),
         "max_mark_price": entry_price,
@@ -636,6 +656,8 @@ def _update_positions(state, market_index, now_dt, ledger_rows):
             close_reason = "trailing_stop"
         elif stop_loss is not None and now_ts >= stop_activation_ts and current_mark <= stop_loss:
             close_reason = "stop_loss"
+        elif safe_int(position.get("event_end_ts")) and now_ts >= safe_int(position.get("event_end_ts")):
+            close_reason = "market_expiry"
         elif now_ts >= time_stop_ts:
             close_reason = "time_stop"
 
@@ -717,17 +739,20 @@ def _blocked_reason_label(reason):
         "bad_entry_price": "Entry price is invalid, so the trade was skipped.",
         "structure_gate": "Structural gate blocked the candidate.",
         "scout_disabled": "Scout mode is disabled in the current paper setup.",
+        "crypto_bias_too_low": "Crypto direction bias is too weak for entry.",
+        "crypto_score_too_low": "Crypto microstructure score is too weak for entry.",
+        "crypto_horizon_too_long": "Crypto market is outside the short-duration trading window.",
     }
     return labels.get(reason or "", "No executable trade passed the current rules.")
 
 
-def _summarize_no_trade_reason(*, daily_stop_hit, buy_candidates, blocked_reasons, opened_positions):
+def _summarize_no_trade_reason(*, daily_stop_hit, buy_candidates, blocked_reasons, opened_positions, no_trade_reason_hint=None):
     if daily_stop_hit:
         return _blocked_reason_label("daily_stop")
     if opened_positions:
         return "Opened a core trade this run."
     if not (buy_candidates or []):
-        return _blocked_reason_label("no_buy_candidates")
+        return no_trade_reason_hint or _blocked_reason_label("no_buy_candidates")
     if blocked_reasons:
         reason = sorted(blocked_reasons.items(), key=lambda item: (-item[1], item[0]))[0][0]
         return _blocked_reason_label(reason)
@@ -841,6 +866,7 @@ def run_paper_cycle(
     radar_candidates=None,
     state_dir=None,
     generated_at_utc=None,
+    no_trade_reason_hint=None,
 ):
     now_dt = _utc_now()
     state, reset_info = load_state(state_dir=state_dir)
@@ -894,6 +920,7 @@ def run_paper_cycle(
         buy_candidates=paper_buy_candidates,
         blocked_reasons=blocked_buy_reasons,
         opened_positions=opened_positions,
+        no_trade_reason_hint=no_trade_reason_hint,
     )
     summary = {
         "generated_at_utc": generated_at_utc or _iso_utc(now_dt),

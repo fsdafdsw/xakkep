@@ -2,7 +2,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import paper_trading
 from paper_trading import run_paper_cycle
 
 
@@ -299,6 +301,34 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(summary["buy_now_count"], 1)
             self.assertEqual(len(summary["opened"]), 1)
 
+    def test_opens_crypto_micro_candidate_in_core_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crypto = _candidate(0.47, stake=0.50)
+            crypto["question"] = "Bitcoin Up or Down - March 27, 12:15-12:30 UTC?"
+            crypto["selected_outcome"] = "Up"
+            crypto["selected_token_id"] = "token-up"
+            crypto["market_key"] = "btc-up-or-down-15m|token-up"
+            crypto["link"] = "https://polymarket.com/event/btc-up-or-down-15m?tid=token-up"
+            crypto["domain_action_family"] = "crypto_micro"
+            crypto["catalyst_type"] = "up_down_short"
+            crypto["repricing_lane_key"] = "crypto_micro"
+            crypto["repricing_lane_label"] = "Crypto fast lane"
+            crypto["repricing_verdict"] = "buy_now"
+            crypto["confidence"] = 0.64
+            crypto["fast_crypto_score"] = 0.74
+            crypto["fast_crypto_direction_bias"] = 0.18
+            crypto["hours_to_close"] = 0.20
+            with patch.object(paper_trading, "PAPER_CORE_LANES", ["crypto_micro"]):
+                result = run_paper_cycle(
+                    [_market(0.47)],
+                    [crypto],
+                    state_dir=tmpdir,
+                    generated_at_utc="2026-03-27 12:00:00 UTC",
+                )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["opened"][0]["trade_mode"], "core")
+
     def test_does_not_open_scout_trade_from_weak_radar_buy_now(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.21, stake=0.25)
@@ -387,6 +417,26 @@ class PaperTradingTests(unittest.TestCase):
             archive_dir = Path(summary["strategy_reset_archive_dir"])
             self.assertTrue((archive_dir / "portfolio.json").exists())
             self.assertTrue((archive_dir / "ledger.jsonl").exists())
+
+    def test_uses_no_trade_reason_hint_when_pool_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_paper_cycle(
+                [],
+                [],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-27 12:00:00 UTC",
+                no_trade_reason_hint="No active 5/10/15-minute crypto markets passed the current filters.",
+            )
+
+            summary = result["summary"]
+            self.assertEqual(
+                summary["no_trade_reason"],
+                "No active 5/10/15-minute crypto markets passed the current filters.",
+            )
+            self.assertIn(
+                "Why no trade\nNo active 5/10/15-minute crypto markets passed the current filters.",
+                result["report_text"],
+            )
 
     def test_preview_hides_candidate_blocked_by_theme_cap(self):
         with tempfile.TemporaryDirectory() as tmpdir:

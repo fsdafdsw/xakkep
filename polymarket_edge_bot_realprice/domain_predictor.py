@@ -1,5 +1,6 @@
 import re
 
+from config import FAST_CRYPTO_ALLOWED_SYMBOLS, FAST_CRYPTO_MAX_HOURS_TO_CLOSE, FAST_CRYPTO_MIN_HOURS_TO_CLOSE, FAST_CRYPTO_MODE
 from geopolitical_context import build_geopolitical_context
 from market_profile import contains_any, normalize_text
 from odds_feed import get_market_odds_prior
@@ -227,6 +228,63 @@ def _intraday_noise_predictor(market, question_text):
     }
 
 
+def _fast_crypto_micro_predictor(market, question_text):
+    if not FAST_CRYPTO_MODE:
+        return None
+    if not _UP_DOWN_RE.search(question_text):
+        return None
+
+    if FAST_CRYPTO_ALLOWED_SYMBOLS and not any(symbol in question_text for symbol in FAST_CRYPTO_ALLOWED_SYMBOLS):
+        return None
+
+    hours_to_close = float(market.get("hours_to_close") or 0.0)
+    if not (FAST_CRYPTO_MIN_HOURS_TO_CLOSE <= hours_to_close <= FAST_CRYPTO_MAX_HOURS_TO_CLOSE):
+        return None
+
+    outcomes = [str(outcome).strip().lower() for outcome in (market.get("outcomes") or [])]
+    selected_idx = int(market.get("selected_outcome_index") or 0)
+    selected_label = outcomes[selected_idx] if 0 <= selected_idx < len(outcomes) else ""
+    if selected_label not in {"up", "down"}:
+        return None
+
+    one_hour_change = float(market.get("one_hour_change") or 0.0)
+    one_day_change = float(market.get("one_day_change") or 0.0)
+    spread = float(market.get("spread") or 0.0)
+    liquidity = float(market.get("liquidity") or 0.0)
+    volume24h = float(market.get("volume24h") or 0.0)
+
+    directional_move = (one_hour_change * 0.75) + (one_day_change * 0.25)
+    directional_bias = _clamp((directional_move / 0.020), low=-1.0, high=1.0)
+    if selected_label == "down":
+        directional_bias *= -1.0
+
+    signal = 0.50 + (directional_bias * 0.16)
+    signal += _clamp((volume24h / 8000.0), 0.0, 1.0) * 0.04
+    signal += _clamp((liquidity / 8000.0), 0.0, 1.0) * 0.03
+    signal -= _clamp(spread / 0.05, 0.0, 1.0) * 0.04
+
+    confidence = 0.52
+    confidence += abs(directional_bias) * 0.18
+    confidence += _clamp((volume24h / 10000.0), 0.0, 1.0) * 0.10
+    confidence += _clamp((liquidity / 10000.0), 0.0, 1.0) * 0.08
+    confidence -= _clamp(spread / 0.05, 0.0, 1.0) * 0.08
+
+    return {
+        "name": "fast_crypto_micro",
+        "signal": _clamp(signal),
+        "confidence": _clamp(confidence),
+        "components": {
+            "hours_to_close": hours_to_close,
+            "directional_move": directional_move,
+            "directional_bias": directional_bias,
+            "spread": spread,
+            "liquidity": liquidity,
+            "volume24h": volume24h,
+            "selected_label": selected_label,
+        },
+    }
+
+
 def _dated_binary_prior(market, question_text):
     if market.get("market_type") != "dated_binary":
         return None
@@ -423,6 +481,7 @@ def compute_domain_predictor(market):
         _sports_odds_feed_predictor,
         _sports_match_predictor,
         _geopolitical_repricing_predictor,
+        _fast_crypto_micro_predictor,
         _intraday_noise_predictor,
         _dated_binary_prior,
     ):

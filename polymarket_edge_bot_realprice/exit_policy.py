@@ -109,6 +109,20 @@ def _policy_for(action_family, repricing_verdict=None, catalyst_type=None):
                 "stop_activation_hours": 8.0,
             }
         )
+    elif action_family == "crypto_micro":
+        policy.update(
+            {
+                "name": "crypto_micro_fast",
+                "take_profit_pct": 0.14,
+                "take_profit_floor": 0.0,
+                "take_profit_abs_min": 0.035,
+                "stop_loss_pct": 0.10,
+                "time_stop_days": 0.04,
+                "trailing_arm_pct": 0.08,
+                "trailing_drawdown_pct": 0.10,
+                "stop_activation_hours": 0.0,
+            }
+        )
 
     return policy
 

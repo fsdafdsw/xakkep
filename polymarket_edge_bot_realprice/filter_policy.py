@@ -2,6 +2,13 @@ from config import (
     EDGE_THRESHOLD,
     EXCLUDE_INTRADAY_CRYPTO,
     EXCLUDED_QUESTION_PATTERNS,
+    FAST_CRYPTO_ALLOWED_SYMBOLS,
+    FAST_CRYPTO_MAX_HOURS_TO_CLOSE,
+    FAST_CRYPTO_MAX_SPREAD,
+    FAST_CRYPTO_MIN_HOURS_TO_CLOSE,
+    FAST_CRYPTO_MIN_LIQUIDITY,
+    FAST_CRYPTO_MIN_VOLUME,
+    FAST_CRYPTO_MODE,
     MAX_PRICE,
     MAX_SPREAD,
     MIN_GRAPH_CONSISTENCY,
@@ -93,6 +100,8 @@ _TYPE_SCORING_OVERRIDES = {
 def _is_intraday_crypto_noise(market, profile):
     if not EXCLUDE_INTRADAY_CRYPTO:
         return False
+    if _is_fast_crypto_market(market, profile):
+        return False
     if profile["market_type"] != "dated_binary":
         return False
     if profile["category_group"] != "crypto":
@@ -100,6 +109,29 @@ def _is_intraday_crypto_noise(market, profile):
 
     question = str(market.get("question") or "").lower()
     return "up or down" in question
+
+
+def _is_fast_crypto_market(market, profile):
+    if not FAST_CRYPTO_MODE:
+        return False
+    if profile["category_group"] != "crypto":
+        return False
+
+    question = str(market.get("question") or "").lower()
+    if "up or down" not in question:
+        return False
+    if FAST_CRYPTO_ALLOWED_SYMBOLS and not any(symbol in question for symbol in FAST_CRYPTO_ALLOWED_SYMBOLS):
+        return False
+
+    hours_to_close = market.get("hours_to_close")
+    if hours_to_close is None:
+        return False
+    try:
+        hours_to_close = float(hours_to_close)
+    except (TypeError, ValueError):
+        return False
+
+    return FAST_CRYPTO_MIN_HOURS_TO_CLOSE <= hours_to_close <= FAST_CRYPTO_MAX_HOURS_TO_CLOSE
 
 
 def _is_low_signal_comparison_market(question):
@@ -128,6 +160,17 @@ def filter_policy_for_market(market):
         "require_orderbook": REQUIRE_ORDERBOOK,
     }
     policy.update(_TYPE_FILTER_OVERRIDES.get(profile["market_type"], {}))
+    if _is_fast_crypto_market(market, profile):
+        policy.update(
+            {
+                "min_volume": max(policy["min_volume"], FAST_CRYPTO_MIN_VOLUME),
+                "min_liquidity": max(policy["min_liquidity"], FAST_CRYPTO_MIN_LIQUIDITY),
+                "max_spread": min(policy["max_spread"], FAST_CRYPTO_MAX_SPREAD),
+                "min_hours_to_close": FAST_CRYPTO_MIN_HOURS_TO_CLOSE,
+                "require_orderbook": True,
+                "excluded_patterns": [],
+            }
+        )
     return policy
 
 

@@ -128,6 +128,16 @@ def _hours_to_close(end_date):
     except ValueError:
         return None
 
+
+def _end_ts(end_date):
+    if not end_date:
+        return None
+    try:
+        end_dt = datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+        return int(end_dt.timestamp())
+    except ValueError:
+        return None
+
 def _normalize_market(raw):
     event_meta = _extract_event_meta(raw)
     outcomes = _parse_json_list(raw.get("outcomes"))
@@ -175,6 +185,8 @@ def _normalize_market(raw):
         "liquidity": safe_float(raw.get("liquidity")) or 0.0,
         "outcome_count": max(len(outcomes), len(prices), len(token_ids)),
         "outcomes": outcomes,
+        "outcome_prices": prices,
+        "token_ids": token_ids,
         "selected_outcome_index": selected_idx,
         "selected_outcome": selected_outcome,
         "selected_price": selected_price,
@@ -191,6 +203,7 @@ def _normalize_market(raw):
         "one_day_change": safe_float(raw.get("oneDayPriceChange")) or 0.0,
         "one_week_change": safe_float(raw.get("oneWeekPriceChange")) or 0.0,
         "end_date": raw.get("endDate"),
+        "end_ts": _end_ts(raw.get("endDate")),
         "hours_to_close": _hours_to_close(raw.get("endDate")),
         "token_yes": selected_token,
     }
