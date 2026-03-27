@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "created_at_utc": "2026-03-15 09:20:35 UTC",
+  "initial_bankroll_usd": 30.0,
+  "cash_usd": 27.686009840232593,
+  "realized_pnl_usd": -1.9215886891791734,
+  "positions": [
+    {
+      "position_id": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574:1774436935",
+      "market_key": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574",
+      "market_id": "610237",
+      "event_slug": "will-putin-meet-with-zelenskyy-by-june-30-2026",
+      "link": "https://polymarket.com/event/will-putin-meet-with-zelenskyy-by-june-30-2026?tid=44812074159637612506092018340437250891595279198295070292118316462711071764574",
+      "question": "Will Putin meet with Zelenskyy by June 30, 2026?",
+      "selected_outcome": "Yes",
+      "entry_price": 0.051,
+      "shares": 6.862745098039215,
+      "stake_usd": 0.35,
+      "total_outlay_usd": 0.39240147058823527,
+      "opened_ts": 1774436935,
+      "opened_at_utc": "2026-03-25 11:08:55 UTC",
+      "action_family": "diplomacy",
+      "catalyst_type": "call_or_meeting",
+      "lane_key": "diplomacy_meeting",
+      "lane_label": "Meeting lane",
+      "thesis_id": "deadline_ladder:67c932e933",
+      "thesis_type": "deadline_ladder",
+      "thesis_cluster_size": 1,
+      "primary_entity_key": null,
+      "theme_key": "diplomacy:putin",
+      "trade_mode": "scout",
+      "take_profit_price": 0.18,
+      "stop_loss_price": 0.036719999999999996,
+      "stop_activation_hours": 24.0,
+      "time_stop_days": 10.0,
+      "time_stop_ts": 1775300935,
+      "trailing_arm_pct": 0.22,
+      "trailing_drawdown_pct": 0.18,
+      "max_mark_price": 0.057,
+      "last_mark_price": 0.043
+    }
+  ],
+  "recently_closed": {
+    "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660": 1773990814,
+    "how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
+    "how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952": 1773822652,
+    "how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356": 1773788671,
+    "russian-strike-on-a-nato-member-by-october-31|25543244747871931789882457929775858252769380692407983079026060150445462771991": 1773914256,
+    "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050": 1774017120,
+    "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162": 1774020354,
+    "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172": 1774165874,
+    "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724": 1774294406,
+    "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574": 1774363973,
+    "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819": 1774543697,
+    "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729": 1774558761
+  },
+  "recently_closed_theses": {
+    "market:how-many-different-countries-will-israel-strike-in-2026|103149043231796752807018971660605675992799889771393087586255256574936406270971": 1773758389,
+    "market:how-many-different-countries-will-israel-strike-in-2026|96335319798300266587878383407639785375563587402719759663597159674985132849356": 1773788671,
+    "market:how-many-different-countries-will-israel-strike-in-2026|2016831347927446419180834317602987894480801436994223278564280138881400953952": 1773822652,
+    "market:how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660": 1773826407,
+    "threshold_ladder:55c101c8fe": 1773990814,
+    "deadline_ladder:85622cb250": 1773914256,
+    "deadline_ladder:8193ae1fb4": 1774017120,
+    "deadline_ladder:4955344cbd": 1774020354,
+    "deadline_ladder:b6da90492c": 1774165874,
+    "deadline_ladder:ebec95567d": 1774294406,
+    "deadline_ladder:67c932e933": 1774363973,
+    "deadline_ladder:e6641edb57": 1774543697,
+    "deadline_ladder:4605c10bcd": 1774558761
+  },
+  "closed_trade_memory": [
+    {
+      "closed_ts": 1773990814,
+      "lane_key": "conflict_fast",
+      "theme_key": "conflict:israel",
+      "market_key": "how-many-different-countries-will-israel-strike-in-2026|77252905361947762994754712299237712134154193959286026702226725255663067981660",
+      "pnl_usd": -0.35124356060606055,
+      "trade_mode": "scout",
+      "question": "Will Israel strike 2 countries in 2026?"
+    },
+    {
+      "closed_ts": 1774017120,
+      "lane_key": "conflict_fast",
+      "theme_key": "conflict:israel",
+      "market_key": "israel-strike-on-damascus-by-september-30|12144309745317498327988492133766790349325209540672841316531075369095028735050",
+      "pnl_usd": -0.0165233870967742,
+      "trade_mode": "scout",
+      "question": "Israel strike on Damascus by March 31, 2026?"
+    },
+    {
+      "closed_ts": 1774020354,
+      "lane_key": "conflict_fast",
+      "theme_key": "conflict:china",
+      "market_key": "will-china-invade-taiwan-before-2027|94559586571241563470235664821564670251180951772614764383113614156422396181162",
+      "pnl_usd": -0.024259375000000027,
+      "trade_mode": "scout",
+      "question": "Will China invade Taiwan by end of 2026?"
+    },
+    {
+      "closed_ts": 1774165874,
+      "lane_key": "conflict_fast",
+      "theme_key": "conflict:north_korea",
+      "market_key": "will-north-korea-invade-south-korea-before-2027|14585618186186946549733724355927128735197195541609100736978645150463981689172",
+      "pnl_usd": -0.05299506578947366,
+      "trade_mode": "scout",
+      "question": "Will North Korea invade South Korea before 2027?"
+    },
+    {
+      "closed_ts": 1774294406,
+      "lane_key": "regime_shift",
+      "theme_key": "regime_shift:trump",
+      "market_key": "will-trump-be-impeached-by-june-30|16880187354325382908535775621770920514888866267674968679832631030907171108724",
+      "pnl_usd": 0.014976500000000004,
+      "trade_mode": "scout",
+      "question": "Will Trump be impeached by June 30?"
+    },
+    {
+      "closed_ts": 1774363973,
+      "lane_key": "diplomacy_meeting",
+      "theme_key": "diplomacy:putin",
+      "market_key": "will-putin-meet-with-zelenskyy-by-june-30-2026|44812074159637612506092018340437250891595279198295070292118316462711071764574",
+      "pnl_usd": -0.13018125000000003,
+      "trade_mode": "scout",
+      "question": "Will Putin meet with Zelenskyy by June 30, 2026?"
+    },
+    {
+      "closed_ts": 1774543697,
+      "lane_key": "regime_shift",
+      "theme_key": "regime_shift:macron_out_in_2025",
+      "market_key": "macron-out-in-2025|16201530957950630406397949502319734794139620443510795733205872225099141120819",
+      "pnl_usd": -0.05234500000000003,
+      "trade_mode": "scout",
+      "question": "Macron out by June 30, 2026?"
+    },
+    {
+      "closed_ts": 1774558761,
+      "lane_key": "diplomacy_ceasefire",
+      "theme_key": "diplomacy:israel_x_hamas_ceasefire_phase_ii_by_october_31",
+      "market_key": "israel-x-hamas-ceasefire-phase-ii-by-october-31|109165744595608085112011734845673565600068942364879488622398983503366544786729",
+      "pnl_usd": -0.14204166666666665,
+      "trade_mode": "scout",
+      "question": "Israel x Hamas Ceasefire Phase II by March 31?"
+    }
+  ],
+  "daily_anchor_date": "2026-03-27",
+  "daily_anchor_equity_usd": 28.034784840232593,
+  "run_count": 326,
+  "last_run_at_utc": "2026-03-27 16:08:51 UTC"
+}
