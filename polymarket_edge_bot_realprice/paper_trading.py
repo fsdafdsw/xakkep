@@ -222,10 +222,9 @@ def _execution_policy_decision(candidate, *, trade_mode):
     if lane_key not in PAPER_CORE_LANES:
         return {"allowed": False, "blocked_reason": "lane_not_enabled"}
 
-    if verdict != "buy_now":
-        return {"allowed": False, "blocked_reason": "not_buy_now"}
-
     if lane_key == "release_hearing":
+        if verdict != "buy_now":
+            return {"allowed": False, "blocked_reason": "not_buy_now"}
         if entry > 0.22:
             return {"allowed": False, "blocked_reason": "price_too_high"}
         if confidence < 0.68:
@@ -237,6 +236,8 @@ def _execution_policy_decision(candidate, *, trade_mode):
         return {"allowed": True, "blocked_reason": None}
 
     if lane_key == "diplomacy_talk_call":
+        if verdict != "buy_now":
+            return {"allowed": False, "blocked_reason": "not_buy_now"}
         if entry > 0.14:
             return {"allowed": False, "blocked_reason": "price_too_high"}
         if confidence < 0.70:
@@ -244,6 +245,21 @@ def _execution_policy_decision(candidate, *, trade_mode):
         if attention_gap < 0.32:
             return {"allowed": False, "blocked_reason": "attention_too_low"}
         if watch_score < 0.70:
+            return {"allowed": False, "blocked_reason": "watch_score_too_low"}
+        return {"allowed": True, "blocked_reason": None}
+
+    if lane_key == "diplomacy_meeting":
+        if verdict != "watch_high_upside":
+            return {"allowed": False, "blocked_reason": "not_high_upside"}
+        if entry > 0.08:
+            return {"allowed": False, "blocked_reason": "price_too_high"}
+        if confidence < 0.76:
+            return {"allowed": False, "blocked_reason": "confidence_too_low"}
+        if fresh_catalyst < 0.60:
+            return {"allowed": False, "blocked_reason": "catalyst_too_weak"}
+        if attention_gap < 0.70:
+            return {"allowed": False, "blocked_reason": "attention_too_low"}
+        if watch_score < 0.92:
             return {"allowed": False, "blocked_reason": "watch_score_too_low"}
         return {"allowed": True, "blocked_reason": None}
 
@@ -255,6 +271,19 @@ def _filter_consistency_execution_candidates(candidates):
     for candidate in candidates or []:
         if _passes_structure_execution_gate(candidate):
             rows.append(candidate)
+    return rows
+
+
+def _merge_candidate_lists(*candidate_groups):
+    rows = []
+    seen = set()
+    for group in candidate_groups:
+        for candidate in group or []:
+            key = candidate.get("link") or candidate.get("market_key") or candidate.get("question")
+            if not key or key in seen:
+                continue
+            rows.append(candidate)
+            seen.add(key)
     return rows
 
 
@@ -623,6 +652,7 @@ def _blocked_reason_label(reason):
         "no_buy_candidates": "No buy_now candidates reached paper execution.",
         "lane_not_enabled": "No candidate landed in the active core lanes.",
         "not_buy_now": "Candidates existed, but none were strong enough for buy_now.",
+        "not_high_upside": "Candidates existed, but none reached the high-upside meeting threshold.",
         "price_too_high": "Best candidate is too expensive at the current price.",
         "confidence_too_low": "Confidence is below the core threshold.",
         "catalyst_too_weak": "Fresh catalyst signal is too weak for entry.",
@@ -775,7 +805,10 @@ def run_paper_cycle(
     daily_stop_hit, daily_drawdown = _daily_stop_hit(state, post_close_snapshot)
     open_links = {row.get("link") for row in post_close_snapshot["open_positions"] if row.get("link")}
 
-    paper_buy_candidates = _filter_consistency_execution_candidates(buy_candidates)
+    paper_buy_candidates = _merge_candidate_lists(
+        _filter_consistency_execution_candidates(buy_candidates),
+        _filter_consistency_execution_candidates(best_watchlist),
+    )
 
     opened_positions = []
     executable_buy_candidates = []

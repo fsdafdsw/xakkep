@@ -256,6 +256,47 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(len(summary["opened"]), 0)
             self.assertEqual(summary["watchlist_count"], 0)
 
+    def test_opens_meeting_watch_high_upside_in_core_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meeting = _candidate(0.07, stake=0.50)
+            meeting["repricing_verdict"] = "watch_high_upside"
+            meeting["repricing_lane_key"] = "diplomacy_meeting"
+            meeting["repricing_lane_label"] = "Meeting lane"
+            meeting["repricing_watch_score"] = 0.95
+            meeting["repricing_attention_gap"] = 0.84
+            meeting["confidence"] = 0.78
+            meeting["repricing_fresh_catalyst_score"] = 0.65
+            result = run_paper_cycle(
+                [_market(0.07)],
+                [meeting],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["opened"][0]["trade_mode"], "core")
+
+    def test_builds_core_pool_from_best_watchlist_for_meeting_lane(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meeting = _candidate(0.07, stake=0.50)
+            meeting["repricing_verdict"] = "watch_high_upside"
+            meeting["repricing_lane_key"] = "diplomacy_meeting"
+            meeting["repricing_lane_label"] = "Meeting lane"
+            meeting["repricing_watch_score"] = 0.95
+            meeting["repricing_attention_gap"] = 0.84
+            meeting["confidence"] = 0.78
+            meeting["repricing_fresh_catalyst_score"] = 0.65
+            result = run_paper_cycle(
+                [_market(0.07)],
+                [],
+                best_watchlist=[meeting],
+                state_dir=tmpdir,
+                generated_at_utc="2026-03-15 12:00:00 UTC",
+            )
+            summary = result["summary"]
+            self.assertEqual(summary["buy_now_count"], 1)
+            self.assertEqual(len(summary["opened"]), 1)
+
     def test_does_not_open_scout_trade_from_weak_radar_buy_now(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.21, stake=0.25)

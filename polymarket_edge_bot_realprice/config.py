@@ -178,7 +178,7 @@ PAPER_CORE_LANES = [
     part.strip()
     for part in os.getenv(
         "PAPER_CORE_LANES",
-        "release_hearing,diplomacy_talk_call",
+        "release_hearing,diplomacy_talk_call,diplomacy_meeting",
     ).split(",")
     if part.strip()
 ]

@@ -58,7 +58,7 @@ jobs:
           PAPER_REENTRY_COOLDOWN_MINUTES: "15"
           PAPER_THESIS_REENTRY_COOLDOWN_MINUTES: "240"
           PAPER_DAILY_STOP_LOSS_USD: "1.5"
-          PAPER_CORE_LANES: "release_hearing,diplomacy_talk_call"
+          PAPER_CORE_LANES: "release_hearing,diplomacy_talk_call,diplomacy_meeting"
           PAPER_SCOUT_ENABLED: "false"
           PAPER_SCOUT_STAKE_USD: "0.30"
           PAPER_SCOUT_MAX_PER_RUN: "2"
