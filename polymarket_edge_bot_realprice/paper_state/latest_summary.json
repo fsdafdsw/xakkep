@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-03-27 07:23:12 UTC",
+  "generated_at_utc": "2026-03-27 08:08:56 UTC",
   "initial_bankroll_usd": 30.0,
   "cash_usd": 27.686009840232593,
   "equity_usd": 28.034784840232593,
@@ -25,12 +25,14 @@
       "trade_mode": "scout"
     }
   ],
-  "run_count": 317,
+  "run_count": 318,
   "daily_stop_hit": false,
   "daily_drawdown_usd": 0.0,
   "daily_anchor_equity_usd": 28.034784840232593,
   "buy_now_count": 0,
   "watchlist_count": 0,
   "radar_count": 0,
-  "idea_preview": []
+  "idea_preview": [],
+  "no_trade_reason": "No buy_now candidates reached paper execution.",
+  "blocked_reason_counts": {}
 }
