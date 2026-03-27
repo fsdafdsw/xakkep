@@ -1,10 +1,12 @@
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from config import (
     BANKROLL_USD,
     ESTIMATED_SLIPPAGE_BPS,
+    PAPER_CORE_LANES,
     PAPER_DAILY_STOP_LOSS_USD,
     PAPER_LANE_ADMISSION_LOOKBACK,
     PAPER_LANE_KILL_LOSS_STREAK,
@@ -16,14 +18,9 @@ from config import (
     PAPER_MAX_OPEN_POSITIONS,
     PAPER_MAX_OPEN_PER_THEME,
     PAPER_MIN_TRADE_USD,
-    PAPER_REPORT_MAX_IDEAS,
     PAPER_REENTRY_COOLDOWN_MINUTES,
     PAPER_THESIS_REENTRY_COOLDOWN_MINUTES,
-    PAPER_RADAR_SCOUT_MIN_SCORE,
     PAPER_REPORT_MAX_OPEN_POSITIONS,
-    PAPER_SCOUT_ENABLED,
-    PAPER_SCOUT_MAX_PER_RUN,
-    PAPER_SCOUT_STAKE_USD,
     PAPER_STATE_DIR,
     PAPER_THEME_ADMISSION_LOOKBACK,
     PAPER_THEME_KILL_MAX_MEAN_PNL_USD,
@@ -157,10 +154,6 @@ def _scaled_stake(candidate_stake, equity):
     return min(PAPER_MAX_BET_USD, max(0.0, scaled))
 
 
-def _scout_stake(equity):
-    return min(PAPER_SCOUT_STAKE_USD, max(0.0, equity * 0.04))
-
-
 def _position_line(position, mark_price=None, unrealized_pnl=None):
     lane = position.get("lane_label") or position.get("lane_key") or "paper lane"
     parts = [position.get("question") or "Unknown market"]
@@ -211,136 +204,50 @@ def _preview_priority(row):
 
 
 def _passes_structure_execution_gate(candidate):
-    if not candidate:
-        return False
-
-    if candidate.get("next_buyer_supported"):
-        edge = safe_float(candidate.get("next_buyer_edge"), default=0.0)
-        if edge <= 0.0:
-            return False
-        return bool(candidate.get("next_buyer_selected"))
-
-    if not candidate.get("consistency_engine_supported"):
-        return True
-
-    residual = safe_float(candidate.get("consistency_residual"), default=0.0)
-    if residual <= 0.0:
-        return False
-
-    if candidate.get("consistency_selected"):
-        return True
-
-    return False
+    return bool(candidate)
 
 
-def _passes_execution_mode_policy(candidate, *, trade_mode):
+def _execution_policy_decision(candidate, *, trade_mode):
     lane_key = str(candidate.get("repricing_lane_key") or "")
     verdict = str(candidate.get("repricing_verdict") or "")
-    thesis_type = str(candidate.get("thesis_type") or "")
     entry = safe_float(candidate.get("entry"), default=1.0)
-    score = safe_float(candidate.get("repricing_score"), default=0.0)
     watch_score = safe_float(candidate.get("repricing_watch_score"), default=0.0)
     attention_gap = safe_float(candidate.get("repricing_attention_gap"), default=0.0)
     confidence = safe_float(candidate.get("confidence"), default=0.0)
-    lane_prior = safe_float(candidate.get("repricing_lane_prior"), default=0.0)
     fresh_catalyst = safe_float(candidate.get("repricing_fresh_catalyst_score"), default=0.0)
-    conflict_setup = safe_float(candidate.get("repricing_conflict_setup_score"), default=0.0)
-    conflict_urgency = safe_float(candidate.get("repricing_conflict_urgency_score"), default=0.0)
-    regime_gap = safe_float(candidate.get("regime_gap_score"), default=0.0)
-    regime_selected = bool(candidate.get("regime_selected"))
-    next_buyer_selected = bool(candidate.get("next_buyer_selected"))
-    latent_state_selected = bool(candidate.get("latent_state_selected"))
 
-    if trade_mode == "core":
-        if lane_key == "conflict_fast":
-            return (
-                verdict == "buy_now"
-                and entry <= 0.10
-                and conflict_setup >= 0.76
-                and conflict_urgency >= 0.82
-            )
-        return True
+    if trade_mode != "core":
+        return {"allowed": False, "blocked_reason": "scout_disabled"}
 
-    if trade_mode != "scout":
-        return True
+    if lane_key not in PAPER_CORE_LANES:
+        return {"allowed": False, "blocked_reason": "lane_not_enabled"}
 
-    if lane_key == "conflict_fast":
-        return (
-            verdict == "buy_now"
-            and thesis_type != "threshold_ladder"
-            and entry <= 0.08
-            and conflict_setup >= 0.84
-            and conflict_urgency >= 0.90
-            and (next_buyer_selected or latent_state_selected or regime_selected)
-        )
+    if verdict != "buy_now":
+        return {"allowed": False, "blocked_reason": "not_buy_now"}
 
     if lane_key == "release_hearing":
-        return (
-            verdict in {"buy_now", "watch_high_upside", "watch"}
-            and entry <= 0.22
-            and watch_score >= 0.68
-            and attention_gap >= 0.28
-            and confidence >= 0.68
-            and fresh_catalyst >= 0.52
-        )
+        if entry > 0.22:
+            return {"allowed": False, "blocked_reason": "price_too_high"}
+        if confidence < 0.68:
+            return {"allowed": False, "blocked_reason": "confidence_too_low"}
+        if fresh_catalyst < 0.52:
+            return {"allowed": False, "blocked_reason": "catalyst_too_weak"}
+        if watch_score < 0.68:
+            return {"allowed": False, "blocked_reason": "watch_score_too_low"}
+        return {"allowed": True, "blocked_reason": None}
 
     if lane_key == "diplomacy_talk_call":
-        return (
-            verdict in {"buy_now", "watch_high_upside", "watch"}
-            and entry <= 0.14
-            and watch_score >= 0.70
-            and attention_gap >= 0.32
-            and confidence >= 0.68
-            and lane_prior >= 0.58
-        )
+        if entry > 0.14:
+            return {"allowed": False, "blocked_reason": "price_too_high"}
+        if confidence < 0.70:
+            return {"allowed": False, "blocked_reason": "confidence_too_low"}
+        if attention_gap < 0.32:
+            return {"allowed": False, "blocked_reason": "attention_too_low"}
+        if watch_score < 0.70:
+            return {"allowed": False, "blocked_reason": "watch_score_too_low"}
+        return {"allowed": True, "blocked_reason": None}
 
-    if lane_key == "diplomacy_meeting":
-        return (
-            verdict == "watch_high_upside"
-            and entry <= 0.08
-            and watch_score >= 0.92
-            and attention_gap >= 0.28
-            and confidence >= 0.74
-            and (next_buyer_selected or regime_selected)
-        )
-
-    if lane_key == "diplomacy_resume_talks":
-        return (
-            verdict in {"buy_now", "watch_high_upside"}
-            and entry <= 0.12
-            and watch_score >= 0.82
-            and attention_gap >= 0.30
-            and confidence >= 0.72
-        )
-
-    if lane_key == "diplomacy_ceasefire":
-        return (
-            verdict in {"watch_high_upside", "watch"}
-            and entry <= 0.12
-            and watch_score >= 0.90
-            and attention_gap >= 0.28
-            and confidence >= 0.72
-            and (latent_state_selected or next_buyer_selected or regime_gap >= 0.14)
-        )
-
-    if lane_key == "regime_shift":
-        return (
-            verdict in {"buy_now", "watch_high_upside"}
-            and entry <= 0.14
-            and confidence >= 0.78
-            and regime_gap >= 0.14
-        )
-
-    if lane_key == "generic_repricing":
-        return (
-            verdict == "buy_now"
-            and score >= PAPER_RADAR_SCOUT_MIN_SCORE
-            and entry <= 0.10
-            and confidence >= 0.82
-            and (regime_selected or regime_gap >= 0.18)
-        )
-
-    return False
+    return {"allowed": False, "blocked_reason": "lane_not_enabled"}
 
 
 def _filter_consistency_execution_candidates(candidates):
@@ -363,8 +270,9 @@ def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", exclude
     if not _passes_structure_execution_gate(candidate):
         return {"allowed": False, "blocked_reason": "structure_gate"}
 
-    if not _passes_execution_mode_policy(candidate, trade_mode=trade_mode):
-        return {"allowed": False, "blocked_reason": "execution_policy"}
+    policy = _execution_policy_decision(candidate, trade_mode=trade_mode)
+    if not policy["allowed"]:
+        return {"allowed": False, "blocked_reason": policy["blocked_reason"]}
 
     if len(state["positions"]) >= PAPER_MAX_OPEN_POSITIONS:
         return {"allowed": False, "blocked_reason": "max_open_positions"}
@@ -422,10 +330,7 @@ def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", exclude
         return {"allowed": False, "blocked_reason": "bad_entry_price"}
 
     equity = _portfolio_equity(state)
-    if trade_mode == "scout":
-        desired_stake = _scout_stake(equity)
-    else:
-        desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
+    desired_stake = _scaled_stake(safe_float(candidate.get("stake_usd")), equity)
     if desired_stake < PAPER_MIN_TRADE_USD:
         desired_stake = PAPER_MIN_TRADE_USD
 
@@ -453,6 +358,7 @@ def _candidate_open_plan(state, candidate, now_dt, *, trade_mode="core", exclude
 
 def _filter_executable_candidates(state, candidates, now_dt, *, trade_mode="core", excluded_links=None):
     rows = []
+    blocked_reasons = Counter()
     for candidate in candidates or []:
         plan = _candidate_open_plan(
             state,
@@ -462,64 +368,42 @@ def _filter_executable_candidates(state, candidates, now_dt, *, trade_mode="core
             excluded_links=excluded_links,
         )
         if not plan["allowed"]:
+            blocked_reasons[plan.get("blocked_reason") or "unknown"] += 1
             continue
         rows.append(candidate)
-    return rows
+    return rows, blocked_reasons
 
 
 def _build_idea_preview(
-    buy_candidates,
-    eligible_scout_candidates,
-    *,
-    state=None,
-    now_dt=None,
-    excluded_links=None,
+    executable_buy_candidates,
 ):
     rows = []
     seen = set()
-    blocked = {link for link in (excluded_links or set()) if link}
-
-    for trade_type, bucket, candidates in (
-        ("core", "buy_now", buy_candidates or []),
-        ("scout", "watchlist", eligible_scout_candidates or []),
-    ):
-        for candidate in candidates:
-            link = candidate.get("link")
-            dedupe_key = link or candidate.get("market_key") or candidate.get("question")
-            if not dedupe_key or dedupe_key in seen or link in blocked:
-                continue
-            if not _passes_structure_execution_gate(candidate):
-                continue
-            if state is not None and now_dt is not None:
-                plan = _candidate_open_plan(
-                    state,
-                    candidate,
-                    now_dt,
-                    trade_mode=trade_type,
-                    excluded_links=blocked,
-                )
-                if not plan["allowed"]:
-                    continue
-            rows.append(
-                {
-                    "bucket": bucket,
-                    "trade_type": trade_type,
-                    "question": candidate.get("question") or "Unknown market",
-                    "selected_outcome": candidate.get("selected_outcome") or "outcome",
-                    "entry_price": safe_float(candidate.get("entry"), default=0.0),
-                    "verdict": _preview_verdict_label(candidate),
-                    "lane_label": candidate.get("repricing_lane_label") or candidate.get("repricing_lane_key") or "repricing lane",
-                    "link": link,
-                    "watch_score": safe_float(candidate.get("repricing_watch_score"), default=0.0),
-                    "repricing_score": safe_float(candidate.get("repricing_score"), default=0.0),
-                    "lane_prior": safe_float(candidate.get("repricing_lane_prior"), default=0.0),
-                    "confidence": safe_float(candidate.get("confidence"), default=0.0),
-                }
-            )
-            seen.add(dedupe_key)
+    for candidate in executable_buy_candidates or []:
+        link = candidate.get("link")
+        dedupe_key = link or candidate.get("market_key") or candidate.get("question")
+        if not dedupe_key or dedupe_key in seen:
+            continue
+        rows.append(
+            {
+                "bucket": "buy_now",
+                "trade_type": "core",
+                "question": candidate.get("question") or "Unknown market",
+                "selected_outcome": candidate.get("selected_outcome") or "outcome",
+                "entry_price": safe_float(candidate.get("entry"), default=0.0),
+                "verdict": _preview_verdict_label(candidate),
+                "lane_label": candidate.get("repricing_lane_label") or candidate.get("repricing_lane_key") or "repricing lane",
+                "link": link,
+                "watch_score": safe_float(candidate.get("repricing_watch_score"), default=0.0),
+                "repricing_score": safe_float(candidate.get("repricing_score"), default=0.0),
+                "lane_prior": safe_float(candidate.get("repricing_lane_prior"), default=0.0),
+                "confidence": safe_float(candidate.get("confidence"), default=0.0),
+            }
+        )
+        seen.add(dedupe_key)
 
     rows.sort(key=_preview_priority)
-    return rows[:PAPER_REPORT_MAX_IDEAS]
+    return rows[:1]
 
 
 def _open_position(state, candidate, now_dt, ledger_rows, *, trade_mode="core"):
@@ -733,6 +617,48 @@ def _state_snapshot(state):
     }
 
 
+def _blocked_reason_label(reason):
+    labels = {
+        "daily_stop": "Daily stop is active, so new entries are paused.",
+        "no_buy_candidates": "No buy_now candidates reached paper execution.",
+        "lane_not_enabled": "No candidate landed in the active core lanes.",
+        "not_buy_now": "Candidates existed, but none were strong enough for buy_now.",
+        "price_too_high": "Best candidate is too expensive at the current price.",
+        "confidence_too_low": "Confidence is below the core threshold.",
+        "catalyst_too_weak": "Fresh catalyst signal is too weak for entry.",
+        "watch_score_too_low": "Repricing watch score is too weak for entry.",
+        "attention_too_low": "Attention gap is too weak for entry.",
+        "theme_cap": "Theme cap blocked a repeat trade in the same story.",
+        "lane_cap_conflict": "Conflict lane cap blocked a new position.",
+        "lane_expectancy_kill": "Recent lane expectancy is negative, so the lane is paused.",
+        "lane_loss_streak": "Recent lane loss streak paused new entries.",
+        "theme_expectancy_kill": "Recent theme expectancy is negative, so the theme is paused.",
+        "thesis_position_open": "A position in the same thesis is already open.",
+        "thesis_cooldown": "The thesis is still in cooldown after a recent close.",
+        "market_cooldown": "This market is still in cooldown after a recent close.",
+        "market_already_open": "This market is already open in the portfolio.",
+        "max_open_positions": "Portfolio already reached the max open positions.",
+        "insufficient_cash": "Cash is too low for a new position.",
+        "bad_entry_price": "Entry price is invalid, so the trade was skipped.",
+        "structure_gate": "Structural gate blocked the candidate.",
+        "scout_disabled": "Scout mode is disabled in the current paper setup.",
+    }
+    return labels.get(reason or "", "No executable trade passed the current rules.")
+
+
+def _summarize_no_trade_reason(*, daily_stop_hit, buy_candidates, blocked_reasons, opened_positions):
+    if daily_stop_hit:
+        return _blocked_reason_label("daily_stop")
+    if opened_positions:
+        return "Opened a core trade this run."
+    if not (buy_candidates or []):
+        return _blocked_reason_label("no_buy_candidates")
+    if blocked_reasons:
+        reason = sorted(blocked_reasons.items(), key=lambda item: (-item[1], item[0]))[0][0]
+        return _blocked_reason_label(reason)
+    return _blocked_reason_label(None)
+
+
 def _format_report(summary):
     start_bank = summary["initial_bankroll_usd"]
     equity = summary["equity_usd"]
@@ -748,10 +674,11 @@ def _format_report(summary):
     lines = [
         f"Polymarket paper bot - {summary['generated_at_utc']}",
         "",
+        f"Health: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Runs {summary.get('run_count', 0)} | Open positions {summary['open_position_count']}",
         f"Bank: ${start_bank:.2f} -> ${equity:.2f} ({sign}{change_pct:.2f}%)",
         f"Cash: ${summary['cash_usd']:.2f} | Open positions: {summary['open_position_count']} | Realized: {realized_sign}${abs(realized):.2f} | Unrealized: {unrealized_sign}${abs(unrealized):.2f}",
         f"Daily guard: {'STOPPED' if summary.get('daily_stop_hit') else 'ACTIVE'} | Drawdown today ${summary.get('daily_drawdown_usd', 0.0):.2f} / ${PAPER_DAILY_STOP_LOSS_USD:.2f}",
-        f"Executable pool: {summary.get('buy_now_count', 0)} core | {summary.get('watchlist_count', 0)} watch scout | {summary.get('radar_count', 0)} radar scout",
+        f"Executable core pool: {summary.get('buy_now_count', 0)}",
         "",
         "Opened this run",
     ]
@@ -792,25 +719,18 @@ def _format_report(summary):
     else:
         lines.append("none")
 
-    lines.extend(["", "Next trade"])
+    lines.extend(["", "Next executable trade"])
     preview_rows = summary.get("idea_preview") or []
     if preview_rows:
         top_row = preview_rows[0]
         lines.append(_format_preview_line(1, top_row))
         if top_row.get("link"):
             lines.append(f"   Link: {top_row['link']}")
-
-        backup_rows = preview_rows[1:3]
-        lines.extend(["", "Backups"])
-        if backup_rows:
-            for idx, row in enumerate(backup_rows, start=1):
-                lines.append(_format_preview_line(idx, row))
-                if row.get("link"):
-                    lines.append(f"   Link: {row['link']}")
-        else:
-            lines.append("none")
     else:
         lines.append("none")
+
+    lines.extend(["", "Why no trade"])
+    lines.append(summary.get("no_trade_reason") or "none")
 
     return "\n".join(lines)
 
@@ -829,37 +749,7 @@ def _daily_stop_hit(state, snapshot):
 
 
 def _eligible_scout_candidates(candidates, *, limit=True):
-    if not PAPER_SCOUT_ENABLED:
-        return []
-
-    rows = []
-    seen = set()
-    for candidate in candidates or []:
-        if not _passes_structure_execution_gate(candidate):
-            continue
-        if not _passes_execution_mode_policy(candidate, trade_mode="scout"):
-            continue
-        link = candidate.get("link")
-        if link and link in seen:
-            continue
-        rows.append(candidate)
-        if link:
-            seen.add(link)
-
-    rows.sort(
-        key=lambda row: (
-            -(1 if str(row.get("repricing_verdict") or "") == "buy_now" else 0),
-            -(row.get("repricing_watch_score") or 0.0),
-            -(row.get("repricing_score") or 0.0),
-            -(row.get("repricing_lane_prior") or 0.0),
-            -(row.get("repricing_optionality_score") or 0.0),
-            -(row.get("repricing_attention_gap") or 0.0),
-            -(row.get("confidence") or 0.0),
-        )
-    )
-    if limit:
-        return rows[:PAPER_SCOUT_MAX_PER_RUN]
-    return rows
+    return []
 
 
 def run_paper_cycle(
@@ -886,75 +776,41 @@ def run_paper_cycle(
     open_links = {row.get("link") for row in post_close_snapshot["open_positions"] if row.get("link")}
 
     paper_buy_candidates = _filter_consistency_execution_candidates(buy_candidates)
-    paper_watchlist_candidates = _filter_consistency_execution_candidates(best_watchlist)
-    paper_scout_pool = _filter_consistency_execution_candidates(scout_candidates if scout_candidates is not None else best_watchlist)
-    paper_radar_candidates = _filter_consistency_execution_candidates(radar_candidates)
 
     opened_positions = []
     executable_buy_candidates = []
-    executable_watch_candidates = []
-    executable_radar_candidates = []
-    executable_scout_rows = []
+    blocked_buy_reasons = Counter()
     if not daily_stop_hit:
-        executable_buy_candidates = _filter_executable_candidates(
+        executable_buy_candidates, blocked_buy_reasons = _filter_executable_candidates(
             state,
             paper_buy_candidates,
             now_dt,
             trade_mode="core",
             excluded_links=open_links,
         )
-        executable_watch_candidates = _filter_executable_candidates(
-            state,
-            _eligible_scout_candidates(paper_watchlist_candidates, limit=False),
-            now_dt,
-            trade_mode="scout",
-            excluded_links=open_links,
-        )
-        executable_radar_candidates = _filter_executable_candidates(
-            state,
-            _eligible_scout_candidates(paper_radar_candidates, limit=False),
-            now_dt,
-            trade_mode="scout",
-            excluded_links=open_links,
-        )
-        executable_scout_rows = _filter_executable_candidates(
-            state,
-            _eligible_scout_candidates(paper_scout_pool, limit=False),
-            now_dt,
-            trade_mode="scout",
-            excluded_links=open_links,
-        )[:PAPER_SCOUT_MAX_PER_RUN]
-
-        for trade_mode, rows in (("core", executable_buy_candidates), ("scout", executable_scout_rows)):
-            for candidate in rows:
-                position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode=trade_mode)
-                if position:
-                    opened_positions.append(
-                        {
-                            "question": position.get("question"),
-                            "selected_outcome": position.get("selected_outcome"),
-                            "entry_price": safe_float(position.get("entry_price"), default=0.0),
-                            "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
-                            "lane_label": position.get("lane_label") or position.get("lane_key"),
-                            "trade_mode": trade_mode,
-                            "link": position.get("link"),
-                        }
-                    )
+        for candidate in executable_buy_candidates[:1]:
+            position = _open_position(state, candidate, now_dt, ledger_rows, trade_mode="core")
+            if position:
+                opened_positions.append(
+                    {
+                        "question": position.get("question"),
+                        "selected_outcome": position.get("selected_outcome"),
+                        "entry_price": safe_float(position.get("entry_price"), default=0.0),
+                        "stake_usd": safe_float(position.get("stake_usd"), default=0.0),
+                        "lane_label": position.get("lane_label") or position.get("lane_key"),
+                        "trade_mode": "core",
+                        "link": position.get("link"),
+                    }
+                )
 
     snapshot = _state_snapshot(state)
-    open_links = {row.get("link") for row in snapshot["open_positions"] if row.get("link")}
-    idea_preview = _build_idea_preview(
-        executable_buy_candidates if not daily_stop_hit else [],
-        _filter_executable_candidates(
-            state,
-            _eligible_scout_candidates(paper_scout_pool, limit=False),
-            now_dt,
-            trade_mode="scout",
-            excluded_links=open_links,
-        ) if not daily_stop_hit else [],
-        state=state,
-        now_dt=now_dt,
-        excluded_links=open_links,
+    remaining_buy_candidates = executable_buy_candidates[1:] if opened_positions else executable_buy_candidates
+    idea_preview = _build_idea_preview(remaining_buy_candidates if not daily_stop_hit else [])
+    no_trade_reason = _summarize_no_trade_reason(
+        daily_stop_hit=daily_stop_hit,
+        buy_candidates=paper_buy_candidates,
+        blocked_reasons=blocked_buy_reasons,
+        opened_positions=opened_positions,
     )
     summary = {
         "generated_at_utc": generated_at_utc or _iso_utc(now_dt),
@@ -972,9 +828,11 @@ def run_paper_cycle(
         "daily_drawdown_usd": daily_drawdown,
         "daily_anchor_equity_usd": safe_float(state.get("daily_anchor_equity_usd"), default=snapshot["equity_usd"]),
         "buy_now_count": len(executable_buy_candidates),
-        "watchlist_count": len(executable_watch_candidates),
-        "radar_count": len(executable_radar_candidates),
+        "watchlist_count": 0,
+        "radar_count": 0,
         "idea_preview": idea_preview,
+        "no_trade_reason": no_trade_reason,
+        "blocked_reason_counts": dict(blocked_buy_reasons),
     }
 
     save_state(state, summary=summary, state_dir=state_dir)

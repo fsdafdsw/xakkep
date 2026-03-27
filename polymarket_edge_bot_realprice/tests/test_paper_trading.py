@@ -30,14 +30,14 @@ def _candidate(entry, stake=50.0):
         "entry": entry,
         "cost_per_share": 0.002,
         "stake_usd": stake,
-        "domain_action_family": "conflict",
-        "catalyst_type": "military_action",
+        "domain_action_family": "release",
+        "catalyst_type": "hearing",
         "repricing_verdict": "buy_now",
         "repricing_score": 0.90,
         "repricing_watch_score": 0.90,
         "repricing_attention_gap": 0.54,
-        "repricing_lane_key": "conflict_fast",
-        "repricing_lane_label": "Conflict fast lane",
+        "repricing_lane_key": "release_hearing",
+        "repricing_lane_label": "Legal catalyst lane",
         "repricing_lane_prior": 0.78,
         "repricing_fresh_catalyst_score": 0.72,
         "repricing_conflict_setup_score": 0.86,
@@ -71,7 +71,7 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(summary["open_position_count"], 0)
             self.assertGreater(summary["realized_pnl_usd"], 0.0)
 
-    def test_opens_scout_trade_from_watch_high_upside_lane(self):
+    def test_does_not_open_watch_high_upside_when_scout_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.10, stake=0.25)
             scout["repricing_verdict"] = "watch_high_upside"
@@ -85,8 +85,8 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 1)
-            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["watchlist_count"], 0)
 
     def test_blocks_second_open_in_same_thesis(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -137,7 +137,7 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(len(summary["opened"]), 0)
             self.assertEqual(summary["open_position_count"], 0)
 
-    def test_opens_scout_trade_from_strong_watch_lane(self):
+    def test_does_not_open_watch_lane_when_scout_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.10, stake=0.25)
             scout["repricing_verdict"] = "watch"
@@ -153,10 +153,10 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 1)
-            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["watchlist_count"], 0)
 
-    def test_opens_scout_trade_from_global_high_upside_lane(self):
+    def test_does_not_open_global_high_upside_when_scout_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.12, stake=0.25)
             scout["repricing_verdict"] = "watch_high_upside"
@@ -175,10 +175,10 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 1)
-            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["watchlist_count"], 0)
 
-    def test_opens_scout_trade_from_strong_radar_buy_now(self):
+    def test_does_not_open_generic_radar_buy_when_scout_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.09, stake=0.25)
             scout["repricing_lane_key"] = "generic_repricing"
@@ -197,8 +197,8 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 1)
-            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["radar_count"], 0)
 
     def test_does_not_open_conflict_fast_scout_from_radar_buy_now(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -235,7 +235,7 @@ class PaperTradingTests(unittest.TestCase):
             summary = result["summary"]
             self.assertEqual(len(summary["opened"]), 0)
 
-    def test_opens_meeting_watch_high_upside_with_regime_support(self):
+    def test_does_not_open_meeting_watch_high_upside_when_scout_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             scout = _candidate(0.07, stake=0.25)
             scout["repricing_verdict"] = "watch_high_upside"
@@ -253,8 +253,8 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 1)
-            self.assertEqual(summary["opened"][0]["trade_mode"], "scout")
+            self.assertEqual(len(summary["opened"]), 0)
+            self.assertEqual(summary["watchlist_count"], 0)
 
     def test_does_not_open_scout_trade_from_weak_radar_buy_now(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -278,53 +278,21 @@ class PaperTradingTests(unittest.TestCase):
     def test_summary_includes_signal_counts_and_preview_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             buy = _candidate(0.10)
-            watch = _candidate(0.11, stake=0.25)
-            watch["market_id"] = "market-2"
-            watch["event_slug"] = "market-2"
-            watch["market_key"] = "market-2|token-2"
-            watch["selected_token_id"] = "token-2"
-            watch["link"] = "https://polymarket.com/event/market-2?tid=token-2"
-            watch["question"] = "Watch setup?"
-            watch["repricing_verdict"] = "watch_high_upside"
-            watch["repricing_lane_key"] = "diplomacy_talk_call"
-            watch["repricing_lane_label"] = "Talk / call lane"
-            watch["thesis_id"] = "watch_thesis:test"
-            watch["primary_entity_key"] = "putin"
-            radar = _candidate(0.09, stake=0.25)
-            radar["market_id"] = "market-3"
-            radar["event_slug"] = "market-3"
-            radar["market_key"] = "market-3|token-3"
-            radar["selected_token_id"] = "token-3"
-            radar["link"] = "https://polymarket.com/event/market-3?tid=token-3"
-            radar["question"] = "Radar setup?"
-            radar["repricing_lane_key"] = "generic_repricing"
-            radar["repricing_lane_label"] = "Generic repricing"
-            radar["thesis_id"] = "radar_thesis:test"
-            radar["primary_entity_key"] = "poland"
-            radar["repricing_score"] = 0.86
-            radar["repricing_watch_score"] = 0.96
-            radar["repricing_attention_gap"] = 0.54
-            radar["confidence"] = 0.83
-            radar["regime_selected"] = True
-            radar["regime_gap_score"] = 0.22
             result = run_paper_cycle(
                 [_market(0.10)],
                 [buy],
-                best_watchlist=[watch],
-                radar_candidates=[radar],
                 state_dir=tmpdir,
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
             self.assertEqual(summary["buy_now_count"], 1)
-            self.assertEqual(summary["watchlist_count"], 1)
-            self.assertEqual(summary["radar_count"], 1)
-            self.assertEqual(len(summary["opened"]), 2)
+            self.assertEqual(summary["watchlist_count"], 0)
+            self.assertEqual(summary["radar_count"], 0)
+            self.assertEqual(len(summary["opened"]), 1)
             self.assertEqual(summary["idea_preview"], [])
-            self.assertIn("Executable pool: 1 core | 1 watch scout | 1 radar scout", result["report_text"])
-            self.assertIn("Next trade", result["report_text"])
-            self.assertIn("Next trade\nnone", result["report_text"])
-            self.assertNotIn("Watch only", result["report_text"])
+            self.assertIn("Executable core pool: 1", result["report_text"])
+            self.assertIn("Next executable trade\nnone", result["report_text"])
+            self.assertIn("Why no trade\nOpened a core trade this run.", result["report_text"])
 
     def test_preview_hides_candidate_blocked_by_theme_cap(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -344,65 +312,42 @@ class PaperTradingTests(unittest.TestCase):
             blocked["selected_token_id"] = "token-2"
             blocked["link"] = "https://polymarket.com/event/market-2?tid=token-2"
             blocked["question"] = "Will Israel strike 6 countries in 2026?"
-            blocked["repricing_verdict"] = "watch_high_upside"
+            blocked["repricing_verdict"] = "buy_now"
             blocked["primary_entity_key"] = "israel"
 
             result = run_paper_cycle(
                 [_market(0.10)],
-                [],
-                best_watchlist=[blocked],
+                [blocked],
                 state_dir=tmpdir,
                 generated_at_utc="2026-03-15 12:05:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(summary["watchlist_count"], 0)
+            self.assertEqual(summary["buy_now_count"], 0)
             self.assertEqual(summary["idea_preview"], [])
-            self.assertIn("Next trade\nnone", result["report_text"])
+            self.assertIn("Next executable trade\nnone", result["report_text"])
+            self.assertIn("Theme cap blocked a repeat trade in the same story.", result["report_text"])
 
-    def test_blocks_third_conflict_position_by_lane_cap(self):
+    def test_blocks_non_whitelisted_lane_from_core_execution(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             china = _candidate(0.10)
             china["question"] = "Will China invade Taiwan by end of 2026?"
-            china["primary_entity_key"] = "china"
-            china["event_slug"] = "china-invade"
-            china["market_key"] = "china|token-1"
-            china["link"] = "https://polymarket.com/event/china-invade?tid=token-1"
-            china["thesis_id"] = "conflict_thesis:china"
-
-            north_korea = _candidate(0.10)
-            north_korea["question"] = "Will North Korea invade South Korea before 2027?"
-            north_korea["primary_entity_key"] = "north_korea"
-            north_korea["event_slug"] = "nk-invade"
-            north_korea["market_key"] = "nk|token-1"
-            north_korea["link"] = "https://polymarket.com/event/nk-invade?tid=token-1"
-            north_korea["thesis_id"] = "conflict_thesis:nk"
-
-            run_paper_cycle(
-                [_market(0.10), _market(0.10)],
-                [china, north_korea],
-                state_dir=tmpdir,
-                generated_at_utc="2026-03-15 12:00:00 UTC",
-            )
-
-            third = _candidate(0.11)
-            third["question"] = "Will Russia strike Poland by June 30?"
-            third["primary_entity_key"] = "russia"
-            third["event_slug"] = "russia-strike-poland"
-            third["market_key"] = "russia|token-1"
-            third["link"] = "https://polymarket.com/event/russia-strike-poland?tid=token-1"
-            third["thesis_id"] = "conflict_thesis:russia"
+            china["domain_action_family"] = "conflict"
+            china["catalyst_type"] = "military_action"
+            china["repricing_lane_key"] = "conflict_fast"
+            china["repricing_lane_label"] = "Conflict fast lane"
 
             result = run_paper_cycle(
-                [_market(0.11)],
-                [third],
+                [_market(0.10)],
+                [china],
                 state_dir=tmpdir,
-                generated_at_utc="2026-03-15 12:05:00 UTC",
+                generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
             self.assertEqual(len(summary["opened"]), 0)
             self.assertEqual(summary["buy_now_count"], 0)
+            self.assertIn("No candidate landed in the active core lanes.", result["report_text"])
 
-    def test_blocks_non_selected_consistency_candidate_in_ladder(self):
+    def test_non_selected_consistency_candidate_can_open_in_core_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             blocked = _candidate(0.10)
             blocked["question"] = "Blocked sibling?"
@@ -418,8 +363,8 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 0)
-            self.assertEqual(summary["buy_now_count"], 0)
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["buy_now_count"], 1)
 
     def test_opens_selected_consistency_candidate_in_ladder(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -440,7 +385,7 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(len(summary["opened"]), 1)
             self.assertEqual(summary["buy_now_count"], 1)
 
-    def test_blocks_non_selected_next_buyer_candidate_in_ladder(self):
+    def test_non_selected_next_buyer_candidate_can_open_in_core_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             blocked = _candidate(0.10)
             blocked["question"] = "Blocked next buyer sibling?"
@@ -458,8 +403,8 @@ class PaperTradingTests(unittest.TestCase):
                 generated_at_utc="2026-03-15 12:00:00 UTC",
             )
             summary = result["summary"]
-            self.assertEqual(len(summary["opened"]), 0)
-            self.assertEqual(summary["buy_now_count"], 0)
+            self.assertEqual(len(summary["opened"]), 1)
+            self.assertEqual(summary["buy_now_count"], 1)
 
     def test_opens_selected_next_buyer_candidate_in_ladder(self):
         with tempfile.TemporaryDirectory() as tmpdir:
